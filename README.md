@@ -1,4 +1,9 @@
-# ESPAsyncWebServer [![Build Status](https://travis-ci.org/Adam5Wu/ESPAsyncWebServer.svg?branch=feature/VFATFS)](https://travis-ci.org/Adam5Wu/ESPAsyncWebServer)
+# ESPAsyncWebServer
+[![Build Status](https://travis-ci.org/Adam5Wu/ESPAsyncWebServer.svg?branch=feature/VFATFS)](https://travis-ci.org/Adam5Wu/ESPAsyncWebServer)
+[![GitHub issues](https://img.shields.io/github/issues/Adam5Wu/ESPAsyncWebServer.svg)](https://github.com/Adam5Wu/ESPAsyncWebServer/issues)
+[![GitHub forks](https://img.shields.io/github/forks/Adam5Wu/ESPAsyncWebServer.svg)](https://github.com/Adam5Wu/ESPAsyncWebServer/network)
+[![License](https://img.shields.io/github/license/Adam5Wu/ESPAsyncWebServer.svg)](./LICENSE)
+
 
 Async HTTP and WebSocket Server for ESP8266 Arduino
 
