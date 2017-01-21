@@ -5,18 +5,21 @@ function build_sketches()
     local arduino=$1
     local srcpath=$2
     local platform=$3
-    local sketches=$(find $srcpath -name *.ino)
-    for sketch in $sketches; do
-        local sketchdir=$(dirname $sketch)
+		local variant=$4
+    find "$srcpath" -type f -name '*.ino' | while read sketch; do
+        local sketchdir=`dirname "$sketch"`
+				local sketchname=`basename "$sketch" .ino`
         if [[ -f "$sketchdir/.$platform.skip" ]]; then
-            echo -e "\n\n ------------ Skipping $sketch ------------ \n\n";
+            echo -e "\n\n ------------ Skipping $sketchname ($platform:$variant) ------------ \n\n";
             continue
         fi
-        echo -e "\n\n ------------ Building $sketch ------------ \n\n";
-        $arduino --verify $sketch;
+        echo -e "\n\n ------------ Building $sketchname ($platform:$variant) ------------ \n\n";
+				[ ! -d "$SKETCHBOOK/$sketchname" ] && cp -r "$sketchdir" "$SKETCHBOOK/$sketchname"
+				cd "$SKETCHBOOK/$sketchname"
+				$arduino --verify --board "esp8266com:$platform:$variant" "${sketchname}.ino"
         local result=$?
         if [ $result -ne 0 ]; then
-            echo "Build failed ($1)"
+            echo "Build failed!"
             return $result
         fi
     done

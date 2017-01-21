@@ -6,13 +6,11 @@
 
 #define NO_GLOBAL_SPIFFS
 
-#include <sys/time.h>
-#include <ESP8266WiFi.h>
-
-#include <FS.h>
 #include <vfatfs_api.h>
-
+#include <ESP8266WiFi.h>
 #include <ESPAsyncWebServer.h>
+
+#include <sys/time.h>
 
 extern "C" {
   #include "lwip/inet.h"
