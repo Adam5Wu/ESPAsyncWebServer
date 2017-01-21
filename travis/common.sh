@@ -6,7 +6,7 @@ function build_sketches()
     local srcpath=$2
     local platform=$3
 		local variant=$4
-    find "$srcpath" -type f -name '*.ino' | while read sketch; do
+    find -L "$srcpath" -type f -name '*.ino' | while read sketch; do
         local sketchdir=`dirname "$sketch"`
 				local sketchname=`basename "$sketch" .ino`
         if [[ -f "$sketchdir/.$platform.skip" ]]; then
@@ -14,7 +14,7 @@ function build_sketches()
             continue
         fi
         echo -e "\n\n ------------ Building $sketchname ($platform:$variant) ------------ \n\n";
-				[ ! -d "$SKETCHBOOK/$sketchname" ] && cp -r "$sketchdir" "$SKETCHBOOK/$sketchname"
+				[ ! -d "$SKETCHBOOK/$sketchname" ] && ln -s "$sketchdir" "$SKETCHBOOK/$sketchname"
 				cd "$SKETCHBOOK/$sketchname"
 				$arduino --verify --board "esp8266com:$platform:$variant" "${sketchname}.ino"
         local result=$?
