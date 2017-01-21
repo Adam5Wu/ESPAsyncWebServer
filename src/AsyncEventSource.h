@@ -2,6 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -74,15 +75,13 @@ class AsyncEventSource: public AsyncWebHandler {
     virtual void handleRequest(AsyncWebServerRequest *request) override final;
 };
 
-class AsyncEventSourceResponse: public AsyncWebServerResponse {
+class AsyncEventSourceResponse: public AsyncBasicResponse {
   private:
-    String _content;
     AsyncEventSource *_server;
+  protected:
+    virtual void requestCleanup(AsyncWebServerRequest *request) override;
   public:
     AsyncEventSourceResponse(AsyncEventSource *server);
-    void _respond(AsyncWebServerRequest *request);
-    size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time);
-    bool _sourceValid() const { return true; }
 };
 
 

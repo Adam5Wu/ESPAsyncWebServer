@@ -16,10 +16,11 @@ script:
   - cp -r $TRAVIS_BUILD_DIR $HOME/Arduino/libraries/ESPAsyncWebServer
   - git clone https://github.com/bblanchon/ArduinoJson $HOME/Arduino/libraries/ArduinoJson
   - git clone https://github.com/me-no-dev/ESPAsyncTCP $HOME/Arduino/libraries/ESPAsyncTCP
+  - git clone https://github.com/Adam5Wu/ESPVFATFS.git $HOME/Arduino/libraries/ESPVFATFS
   - cd $HOME/arduino_ide/hardware
   - mkdir esp8266com
   - cd esp8266com
-  - git clone https://github.com/esp8266/Arduino.git esp8266
+  - git clone https://github.com/Adam5Wu/Arduino.git esp8266
   - cd esp8266/tools
   - python get.py
   - source $TRAVIS_BUILD_DIR/travis/common.sh

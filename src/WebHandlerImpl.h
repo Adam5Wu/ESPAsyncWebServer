@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  This file is part of the esp8266 core for Arduino environment.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -21,38 +21,40 @@
 #ifndef ASYNCWEBSERVERHANDLERIMPL_H_
 #define ASYNCWEBSERVERHANDLERIMPL_H_
 
-
 #include "stddef.h"
 #include <time.h>
+#include <FS.h>
 
 class AsyncStaticWebHandler: public AsyncWebHandler {
   private:
-    bool _getFile(AsyncWebServerRequest *request);
-    bool _fileExists(AsyncWebServerRequest *request, const String& path);
-    uint8_t _countBits(const uint8_t value) const;
+    ArRequestHandlerFunction _requestHandler;
+
+    bool _prepareRequest(String subpath, AsyncWebServerRequest *request);
+    void dirRedirect(AsyncWebServerRequest *request);
   protected:
-    FS _fs;
+    Dir _dir;
     String _uri;
-    String _path;
-    String _default_file;
     String _cache_control;
-    String _last_modified;
-    bool _isDir;
-    bool _gzipFirst;
-    uint8_t _gzipStats;
+    String _indexFile;
+    bool _gzLookup, _gzFirst;
+    ArRequestHandlerFunction _onIndex;
+    ArRequestHandlerFunction _onPathNotFound;
+    ArRequestHandlerFunction _onIndexNotFound;
+
+    virtual void sendDirList(AsyncWebServerRequest *request);
+    virtual void pathNotFound(AsyncWebServerRequest *request);
+    virtual void sendDataFile(AsyncWebServerRequest *request);
   public:
-    AsyncStaticWebHandler(const char* uri, FS& fs, const char* path, const char* cache_control);
+    AsyncStaticWebHandler(const char* uri, Dir const& dir, const char* cache_control);
     virtual bool canHandle(AsyncWebServerRequest *request) override final;
     virtual void handleRequest(AsyncWebServerRequest *request) override final;
-    AsyncStaticWebHandler& setIsDir(bool isDir);
-    AsyncStaticWebHandler& setDefaultFile(const char* filename);
     AsyncStaticWebHandler& setCacheControl(const char* cache_control);
-    AsyncStaticWebHandler& setLastModified(const char* last_modified);
-    AsyncStaticWebHandler& setLastModified(struct tm* last_modified);
-  #ifdef ESP8266
-    AsyncStaticWebHandler& setLastModified(time_t last_modified);
-    AsyncStaticWebHandler& setLastModified(); //sets to current time. Make sure sntp is runing and time is updated
-  #endif
+    AsyncStaticWebHandler& lookupGZ(bool gzLookup, bool gzFirst);
+    AsyncStaticWebHandler& setIndexFile(const char* filename);
+
+    AsyncStaticWebHandler& onIndex(ArRequestHandlerFunction const& onIndex);
+    AsyncStaticWebHandler& onPathNotFound(ArRequestHandlerFunction const& onPathNotFound);
+    AsyncStaticWebHandler& onIndexNotFound(ArRequestHandlerFunction const& onIndexNotFound);
 };
 
 class AsyncCallbackWebHandler: public AsyncWebHandler {
@@ -67,9 +69,9 @@ class AsyncCallbackWebHandler: public AsyncWebHandler {
     AsyncCallbackWebHandler() : _uri(), _method(HTTP_ANY), _onRequest(NULL), _onUpload(NULL), _onBody(NULL){}
     void setUri(const String& uri){ _uri = uri; }
     void setMethod(WebRequestMethodComposite method){ _method = method; }
-    void onRequest(ArRequestHandlerFunction fn){ _onRequest = fn; }
-    void onUpload(ArUploadHandlerFunction fn){ _onUpload = fn; }
-    void onBody(ArBodyHandlerFunction fn){ _onBody = fn; }
+    void onRequest(ArRequestHandlerFunction const& fn){ _onRequest = fn; }
+    void onUpload(ArUploadHandlerFunction const& fn){ _onUpload = fn; }
+    void onBody(ArBodyHandlerFunction const& fn){ _onBody = fn; }
 
     virtual bool canHandle(AsyncWebServerRequest *request) override final{
 
@@ -85,18 +87,20 @@ class AsyncCallbackWebHandler: public AsyncWebHandler {
       request->addInterestingHeader("ANY");
       return true;
     }
-  
+
     virtual void handleRequest(AsyncWebServerRequest *request) override final {
       if(_onRequest)
         _onRequest(request);
       else
         request->send(500);
     }
-    virtual void handleUpload(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) override final {
+    virtual void handleUpload(AsyncWebServerRequest *request, const String& filename, size_t index,
+                              uint8_t *data, size_t len, bool final) override final {
       if(_onUpload)
         _onUpload(request, filename, index, data, len, final);
     }
-    virtual void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) override final {
+    virtual void handleBody(AsyncWebServerRequest *request, uint8_t *data,
+                            size_t len, size_t index, size_t total) override final {
       if(_onBody)
         _onBody(request, data, len, index, total);
     }

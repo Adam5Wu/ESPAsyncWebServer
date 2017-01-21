@@ -4,13 +4,13 @@
   "keywords":"http,async,websocket,webserver",
   "authors":
   {
-    "name": "Hristo Gochkov",
-    "maintainer": true
+    "name": [ "Hristo Gochkov", "Zhenyu Wu" ]
+    "maintainer": "Zhenyu Wu"
   },
   "repository":
   {
     "type": "git",
-    "url": "https://github.com/me-no-dev/ESPAsyncWebServer.git"
+    "url": "https://github.com/Adam5Wu/ESPAsyncWebServer.git"
   },
   "frameworks": "arduino",
   "platforms":"espressif",

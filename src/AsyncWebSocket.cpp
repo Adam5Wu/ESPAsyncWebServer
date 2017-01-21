@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  This file is part of the esp8266 core for Arduino environment.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -75,7 +75,7 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
 
   uint8_t *buf = (uint8_t*)malloc(headLen);
   if(buf == NULL){
-    //os_printf("could not malloc %u bytes for frame header\n", headLen);
+    DEBUGV("could not malloc %u bytes for frame header\n", headLen);
     return 0;
   }
 
@@ -94,7 +94,7 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
     memcpy(buf + (headLen - 4), mbuf, 4);
   }
   if(client->add((const char *)buf, headLen) != headLen){
-    //os_printf("error adding %lu header bytes\n", headLen);
+    DEBUGV("error adding %lu header bytes\n", headLen);
     free(buf);
     return 0;
   }
@@ -107,12 +107,12 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
         data[i] = data[i] ^ mbuf[i%4];
     }
     if(client->add((const char *)data, len) != len){
-      //os_printf("error adding %lu data bytes\n", len);
+      DEBUGV("error adding %lu data bytes\n", len);
       return 0;
     }
   }
   if(!client->send()){
-    //os_printf("error sending frame: %lu\n", headLen+len);
+    DEBUGV("error sending frame: %lu\n", headLen+len);
     return 0;
   }
   return len;
@@ -444,8 +444,8 @@ void AsyncWebSocketClient::_onData(void *buf, size_t plen){
       _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, (uint8_t*)data, plen);
     }
   } else {
-    //os_printf("frame error: len: %u, index: %llu, total: %llu\n", plen, _pinfo.index, _pinfo.len);
-    //what should we do?
+    DEBUGV("frame error: len: %u, index: %llu, total: %llu\n", plen, _pinfo.index, _pinfo.len);
+    // what should we do?
   }
 }
 
@@ -601,7 +601,7 @@ void AsyncWebSocket::_addClient(AsyncWebSocketClient * client){
 }
 
 void AsyncWebSocket::_handleDisconnect(AsyncWebSocketClient * client){
-  
+
   _clients.remove_first([=](AsyncWebSocketClient * c){
     return c->id() == client->id();
   });
@@ -890,9 +890,10 @@ void AsyncWebSocket::handleRequest(AsyncWebServerRequest *request){
  * Authentication code from https://github.com/Links2004/arduinoWebSockets/blob/master/src/WebSockets.cpp#L480
  */
 
-AsyncWebSocketResponse::AsyncWebSocketResponse(const String& key, AsyncWebSocket *server){
-  _server = server;
-  _code = 101;
+AsyncWebSocketResponse::AsyncWebSocketResponse(const String& key, AsyncWebSocket *server)
+  : AsyncSimpleResponse(101)
+  , _server(server)
+{
   uint8_t * hash = (uint8_t*)malloc(20);
   if(hash == NULL){
     _state = RESPONSE_FAILED;
@@ -924,19 +925,9 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String& key, AsyncWebSocket
   free(hash);
 }
 
-void AsyncWebSocketResponse::_respond(AsyncWebServerRequest *request){
-  if(_state == RESPONSE_FAILED){
-    request->client()->close(true);
-    return;
-  }
-  String out = _assembleHead(request->version());
-  request->client()->write(out.c_str(), _headLength);
-  _state = RESPONSE_WAIT_ACK;
-}
-
-size_t AsyncWebSocketResponse::_ack(AsyncWebServerRequest *request, size_t len, uint32_t time){
-  if(len){
+void AsyncWebSocketResponse::requestCleanup(AsyncWebServerRequest *request) {
+  if (_state == RESPONSE_END)
     new AsyncWebSocketClient(request, _server);
-  }
-  return 0;
+  else
+    AsyncSimpleResponse::requestCleanup(request);
 }

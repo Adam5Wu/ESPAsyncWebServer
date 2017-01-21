@@ -2,6 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -112,7 +113,7 @@ AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, A
   _lastId = 0;
   if(request->hasHeader("Last-Event-ID"))
     _lastId = atoi(request->getHeader("Last-Event-ID")->value().c_str());
-    
+
   _client->setRxTimeout(0);
   _client->onError(NULL, NULL);
   _client->onAck(NULL, NULL);
@@ -187,7 +188,7 @@ void AsyncEventSource::_addClient(AsyncEventSourceClient * client){
     client->write((const char *)temp, 2053);
     free(temp);
   }*/
-  
+
   _clients.add(client);
   if(_connectcb)
     _connectcb(client);
@@ -234,24 +235,17 @@ void AsyncEventSource::handleRequest(AsyncWebServerRequest *request){
 
 // Response
 
-AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server){
-  _server = server;
-  _code = 200;
-  _contentType = "text/event-stream";
-  _sendContentLength = false;
+AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server)
+  : AsyncBasicResponse(200, "text/event-stream")
+  , _server(server)
+{
   addHeader("Cache-Control", "no-cache");
-  addHeader("Connection","keep-alive");
+  addHeader("Connection", "keep-alive");
 }
 
-void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request){
-  String out = _assembleHead(request->version());
-  request->client()->write(out.c_str(), _headLength);
-  _state = RESPONSE_WAIT_ACK;
-}
-
-size_t AsyncEventSourceResponse::_ack(AsyncWebServerRequest *request, size_t len, uint32_t time __attribute__((unused))){
-  if(len){
+void AsyncEventSourceResponse::requestCleanup(AsyncWebServerRequest *request) {
+  if (_state == RESPONSE_END)
     new AsyncEventSourceClient(request, _server);
-  }
-  return 0;
+  else
+    AsyncSimpleResponse::requestCleanup(request);
 }

@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  This file is part of the esp8266 core for Arduino environment.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -65,7 +65,6 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer* s, AsyncClient* c)
   , _itemBuffer(0)
   , _itemBufferIndex(0)
   , _itemIsFile(false)
-  , _tempObject(NULL)
 {
   c->onError([](void *r, AsyncClient* c, int8_t error){ AsyncWebServerRequest *req = (AsyncWebServerRequest*)r; req->_onError(error); }, this);
   c->onAck([](void *r, AsyncClient* c, size_t len, uint32_t time){ AsyncWebServerRequest *req = (AsyncWebServerRequest*)r; req->_onAck(len, time); }, this);
@@ -77,93 +76,92 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer* s, AsyncClient* c)
 
 AsyncWebServerRequest::~AsyncWebServerRequest(){
   _headers.free();
-
   _params.free();
-
   _interestingHeaders.free();
 
   if(_response != NULL){
     delete _response;
   }
-
-  if(_tempObject != NULL){
-    free(_tempObject);
-  }
-
-  if(_tempFile){
-    _tempFile.close();
-  }
 }
 
 void AsyncWebServerRequest::_onData(void *buf, size_t len){
-  if(_parseState < PARSE_REQ_BODY){
-    // Find new line in buf
-    char *str = (char*)buf;
-    size_t i = 0;
-    for (; i < len; i++) if (str[i] == '\n') break;
-    if (i == len) { // No new line, just add the buffer in _temp
-      char ch = str[len-1];
-      str[len-1] = 0;
-      _temp.reserve(_temp.length()+len);
-      _temp.concat(str);
-      _temp.concat(ch);
-    } else { // Found new line - extract it and parse
-      str[i] = 0; // Terminate the string at the end of the line.
-      _temp.concat(str);
-      _temp.trim();
-      _parseLine();
-      if (++i < len) _onData(str+i, len-i); // Still have more buffer to process
-    }
-  } else if(_parseState == PARSE_REQ_BODY){
-    if(_isMultipart){
-      size_t i;
-      for(i=0; i<len; i++){
-        _parseMultipartPostByte(((uint8_t*)buf)[i], i == len - 1);
-        _parsedLength++;
+  while (true) {
+    if(_parseState < PARSE_REQ_BODY){
+      // Find new line in buf
+      char *str = (char*)buf;
+      size_t i = 0;
+      for (; i < len; i++) if (str[i] == '\n') break;
+      if (i == len) { // No new line, just add the buffer in _temp
+        char ch = str[len-1];
+        str[len-1] = 0;
+        _temp.reserve(_temp.length()+len);
+        _temp.concat(str);
+        _temp.concat(ch);
+      } else { // Found new line - extract it and parse
+        str[i] = 0; // Terminate the string at the end of the line.
+        _temp.concat(str);
+        _temp.trim();
+        _parseLine();
+        if (++i < len) {
+          // Still have more buffer to process
+          // Iterative instead to recursive
+          //_onData(str+i, len-i);
+          buf = str+i;
+          len-= i;
+          continue;
+        }
       }
-    } else {
-      if(_parsedLength == 0){
-        if(_contentType.startsWith("application/x-www-form-urlencoded")){
-          _isPlainPost = true;
-        } else if(_contentType == "text/plain" && __is_param_char(((char*)buf)[0])){
-          size_t i = 0;
-          while (i<len && __is_param_char(((char*)buf)[i++]));
-          if(i < len && ((char*)buf)[i-1] == '='){
+    } else if(_parseState == PARSE_REQ_BODY){
+      if(_isMultipart){
+        size_t i;
+        for(i=0; i<len; i++){
+          _parseMultipartPostByte(((uint8_t*)buf)[i], i == len - 1);
+          _parsedLength++;
+        }
+      } else {
+        if(_parsedLength == 0){
+          if(_contentType.startsWith("application/x-www-form-urlencoded")){
             _isPlainPost = true;
+          } else if(_contentType == "text/plain" && __is_param_char(((char*)buf)[0])){
+            size_t i = 0;
+            while (i<len && __is_param_char(((char*)buf)[i++]));
+            if(i < len && ((char*)buf)[i-1] == '='){
+              _isPlainPost = true;
+            }
+          }
+        }
+        if(!_isPlainPost) {
+          //check if authenticated before calling the body
+          if(_handler) _handler->handleBody(this, (uint8_t*)buf, len, _parsedLength, _contentLength);
+          _parsedLength += len;
+        } else {
+          size_t i;
+          for(i=0; i<len; i++){
+            _parsedLength++;
+            _parsePlainPostChar(((uint8_t*)buf)[i]);
           }
         }
       }
-      if(!_isPlainPost) {
-        //check if authenticated before calling the body
-        if(_handler) _handler->handleBody(this, (uint8_t*)buf, len, _parsedLength, _contentLength);
-        _parsedLength += len;
-      } else {
-        size_t i;
-        for(i=0; i<len; i++){
-          _parsedLength++;
-          _parsePlainPostChar(((uint8_t*)buf)[i]);
-        }
+
+      if(_parsedLength == _contentLength){
+        _parseState = PARSE_REQ_END;
+        //check if authenticated before calling handleRequest and request auth instead
+        if(_handler) _handler->handleRequest(this);
+        else send(501);
       }
     }
-
-    if(_parsedLength == _contentLength){
-      _parseState = PARSE_REQ_END;
-      //check if authenticated before calling handleRequest and request auth instead
-      if(_handler) _handler->handleRequest(this);
-      else send(501);
-    }
+    break;
   }
 }
 
 void AsyncWebServerRequest::_onPoll(){
-  //os_printf("p\n");
   if(_response != NULL && _client != NULL && _client->canSend() && !_response->_finished()){
     _response->_ack(this, 0, 0);
   }
 }
 
 void AsyncWebServerRequest::_onAck(size_t len, uint32_t time){
-  //os_printf("a:%u:%u\n", len, time);
+  //DEBUGV("ACK: %u @ %u\n", len, time);
   if(_response != NULL){
     if(!_response->_finished()){
       _response->_ack(this, len, time);
@@ -176,16 +174,14 @@ void AsyncWebServerRequest::_onAck(size_t len, uint32_t time){
 }
 
 void AsyncWebServerRequest::_onError(int8_t error){
-
 }
 
 void AsyncWebServerRequest::_onTimeout(uint32_t time){
-  os_printf("TIMEOUT: %u, state: %s\n", time, _client->stateToString());
+  DEBUGV("TIMEOUT: %u, state: %s\n", time, _client->stateToString());
   _client->close();
 }
 
 void AsyncWebServerRequest::_onDisconnect(){
-  //os_printf("d\n");
   _server->_handleDisconnect(this);
 }
 
@@ -244,7 +240,7 @@ bool AsyncWebServerRequest::_parseReqHead(){
   if(!_temp.startsWith("HTTP/1.0"))
     _version = 1;
 
-  _temp = String();
+  _temp.clear();
   return true;
 }
 
@@ -282,7 +278,7 @@ bool AsyncWebServerRequest::_parseReqHeader(){
       }
     }
   }
-  _temp = String();
+  _temp.clear();
   return true;
 }
 
@@ -298,7 +294,7 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data){
       value = _temp.substring(_temp.indexOf('=') + 1);
     }
     _addParam(new AsyncWebParameter(name, value, true));
-    _temp = String();
+    _temp.clear();
   }
 }
 
@@ -332,10 +328,10 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last){
 
   if(!_parsedLength){
     _multiParseState = EXPECT_BOUNDARY;
-    _temp = String();
-    _itemName = String();
-    _itemFilename = String();
-    _itemType = String();
+    _temp.clear();
+    _itemName.clear();
+    _itemFilename.clear();
+    _itemType.clear();
   }
 
   if(_multiParseState == WAIT_FOR_RETURN1){
@@ -366,7 +362,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last){
     if((char)data != '\r' && (char)data != '\n')
        _temp += (char)data;
     if((char)data == '\n'){
-      if(_temp.length()){
+      if(!_temp.empty()){
         if(_temp.length() > 12 && _temp.substring(0, 12).equalsIgnoreCase("Content-Type")){
           _itemType = _temp.substring(14);
           _itemIsFile = true;
@@ -392,7 +388,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last){
             _itemIsFile = true;
           }
         }
-        _temp = String();
+        _temp.clear();
       } else {
         _multiParseState = WAIT_FOR_RETURN1;
         //value starts from here
@@ -461,7 +457,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last){
     }
   } else if(_multiParseState == DASH3_OR_RETURN2){
     if(data == '-' && (_contentLength - _parsedLength - 4) != 0){
-      os_printf("ERROR: The parser got to the end of the POST but is expecting %u bytes more!\nDrop an issue so we can have more info on the matter!\n", _contentLength - _parsedLength - 4);
+      DEBUGV("ERROR: The parser got to the end of the POST but is expecting %u bytes more!\nDrop an issue so we can have more info on the matter!\n", _contentLength - _parsedLength - 4);
       _contentLength = _parsedLength + 4;//lets close the request gracefully
     }
     if(data == '\r'){
@@ -489,7 +485,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last){
 
 void AsyncWebServerRequest::_parseLine(){
   if(_parseState == PARSE_REQ_START){
-    if(!_temp.length()){
+    if(_temp.empty()){
       _parseState = PARSE_REQ_FAIL;
       _client->close();
     } else {
@@ -500,7 +496,7 @@ void AsyncWebServerRequest::_parseLine(){
   }
 
   if(_parseState == PARSE_REQ_HEADERS){
-    if(!_temp.length()){
+    if(_temp.empty()){
       //end of headers
       if(_expectingContinue){
         const char * response = "HTTP/1.1 100 Continue\r\n\r\n";
@@ -584,91 +580,43 @@ void AsyncWebServerRequest::send(AsyncWebServerResponse *response){
     _onDisconnect();
     return;
   }
-  if(!_response->_sourceValid()){
-    delete response;
-    _response = NULL;
-    send(500);
-  }
-  else
-    _response->_respond(this);
+  _response->_respond(this);
 }
 
-AsyncWebServerResponse * AsyncWebServerRequest::beginResponse(int code, const String& contentType, const String& content){
-  return new AsyncBasicResponse(code, contentType, content);
+AsyncWebServerResponse * AsyncWebServerRequest::beginResponse(int code, const String& content, const String& contentType){
+  return content.empty()? (AsyncWebServerResponse*) new AsyncSimpleResponse(code) : new AsyncStringResponse(code, content, contentType);
 }
 
 AsyncWebServerResponse * AsyncWebServerRequest::beginResponse(FS &fs, const String& path, const String& contentType, bool download){
-  if(fs.exists(path) || (!download && fs.exists(path+".gz")))
-    return new AsyncFileResponse(fs, path, contentType, download);
-  return NULL;
+  return new AsyncFileResponse(fs, path, contentType, download);
 }
 
 AsyncWebServerResponse * AsyncWebServerRequest::beginResponse(File content, const String& path, const String& contentType, bool download){
-  if(content == true)
-    return new AsyncFileResponse(content, path, contentType, download);
-  return NULL;
+  return new AsyncFileResponse(content, path, contentType, download);
 }
 
-AsyncWebServerResponse * AsyncWebServerRequest::beginResponse(Stream &stream, const String& contentType, size_t len){
-  return new AsyncStreamResponse(stream, contentType, len);
+AsyncWebServerResponse * AsyncWebServerRequest::beginResponse(int code, Stream &content, const String& contentType, size_t len){
+  return new AsyncStreamResponse(code, content, contentType, len);
 }
 
-AsyncWebServerResponse * AsyncWebServerRequest::beginResponse(const String& contentType, size_t len, AwsResponseFiller callback){
-  return new AsyncCallbackResponse(contentType, len, callback);
+AsyncWebServerResponse * AsyncWebServerRequest::beginResponse(int code, AwsResponseFiller callback, const String& contentType, size_t len){
+  return new AsyncCallbackResponse(code, callback, contentType, len);
 }
 
-AsyncWebServerResponse * AsyncWebServerRequest::beginChunkedResponse(const String& contentType, AwsResponseFiller callback){
-  if(_version)
-    return new AsyncChunkedResponse(contentType, callback);
-  return new AsyncCallbackResponse(contentType, 0, callback);
+AsyncWebServerResponse * AsyncWebServerRequest::beginChunkedResponse(int code, AwsResponseFiller callback, const String& contentType){
+  return _version? (AsyncWebServerResponse*) new AsyncChunkedResponse(code, callback, contentType) : new AsyncCallbackResponse(code, callback, contentType, -1);
 }
 
-AsyncResponseStream * AsyncWebServerRequest::beginResponseStream(const String& contentType, size_t bufferSize){
-  return new AsyncResponseStream(contentType, bufferSize);
+AsyncPrintResponse * AsyncWebServerRequest::beginPrintResponse(int code, const String& contentType){
+  return new AsyncPrintResponse(code, contentType);
 }
 
-AsyncWebServerResponse * AsyncWebServerRequest::beginResponse_P(int code, const String& contentType, const uint8_t * content, size_t len){
-  return new AsyncProgmemResponse(code, contentType, content, len);
+AsyncWebServerResponse * AsyncWebServerRequest::beginResponse_P(int code, const uint8_t * content, const String& contentType, size_t len){
+  return new AsyncProgmemResponse(code, content, contentType, len);
 }
 
-AsyncWebServerResponse * AsyncWebServerRequest::beginResponse_P(int code, const String& contentType, PGM_P content){
-  return beginResponse_P(code, contentType, (const uint8_t *)content, strlen_P(content));
-}
-
-void AsyncWebServerRequest::send(int code, const String& contentType, const String& content){
-  send(beginResponse(code, contentType, content));
-}
-
-void AsyncWebServerRequest::send(FS &fs, const String& path, const String& contentType, bool download){
-  if(fs.exists(path) || (!download && fs.exists(path+".gz"))){
-    send(beginResponse(fs, path, contentType, download));
-  } else send(404);
-}
-
-void AsyncWebServerRequest::send(File content, const String& path, const String& contentType, bool download){
-  if(content == true){
-    send(beginResponse(content, path, contentType, download));
-  } else send(404);
-}
-
-void AsyncWebServerRequest::send(Stream &stream, const String& contentType, size_t len){
-  send(beginResponse(stream, contentType, len));
-}
-
-void AsyncWebServerRequest::send(const String& contentType, size_t len, AwsResponseFiller callback){
-  send(beginResponse(contentType, len, callback));
-}
-
-void AsyncWebServerRequest::sendChunked(const String& contentType, AwsResponseFiller callback){
-  send(beginChunkedResponse(contentType, callback));
-}
-
-void AsyncWebServerRequest::send_P(int code, const String& contentType, const uint8_t * content, size_t len){
-  send(beginResponse_P(code, contentType, content, len));
-}
-
-void AsyncWebServerRequest::send_P(int code, const String& contentType, PGM_P content){
-  send(beginResponse_P(code, contentType, content));
+AsyncWebServerResponse * AsyncWebServerRequest::beginResponse_P(int code, PGM_P content, const String& contentType){
+  return beginResponse_P(code, (const uint8_t *)content, contentType, strlen_P(content));
 }
 
 void AsyncWebServerRequest::redirect(const String& url){
@@ -678,7 +626,7 @@ void AsyncWebServerRequest::redirect(const String& url){
 }
 
 bool AsyncWebServerRequest::authenticate(const char * username, const char * password, const char * realm, bool passwordIsHash){
-  if(_authorization.length()){
+  if(_authorization){
     if(_isDigest)
       return checkDigestAuthentication(_authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, NULL, NULL, NULL);
     else if(!passwordIsHash)
@@ -690,7 +638,7 @@ bool AsyncWebServerRequest::authenticate(const char * username, const char * pas
 }
 
 bool AsyncWebServerRequest::authenticate(const char * hash){
-  if(!_authorization.length() || hash == NULL)
+  if(!_authorization || hash == NULL)
     return false;
 
   if(_isDigest){

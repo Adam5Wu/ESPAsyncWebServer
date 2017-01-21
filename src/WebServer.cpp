@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  This file is part of the esp8266 core for Arduino environment.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -112,43 +112,32 @@ void AsyncWebServer::_attachHandler(AsyncWebServerRequest *request){
       return;
     }
   }
-  
+
   request->addInterestingHeader("ANY");
   request->setHandler(_catchAllHandler);
 }
 
-
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest, ArUploadHandlerFunction onUpload, ArBodyHandlerFunction onBody){
-  AsyncCallbackWebHandler* handler = new AsyncCallbackWebHandler();
-  handler->setUri(uri);
-  handler->setMethod(method);
-  handler->onRequest(onRequest);
-  handler->onUpload(onUpload);
-  handler->onBody(onBody);
-  addHandler(handler);
-  return *handler;
+AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
+                                            ArUploadHandlerFunction const& onUpload, ArBodyHandlerFunction const& onBody){
+  AsyncCallbackWebHandler& handler = on(uri,method,onRequest,onUpload);
+  handler.onBody(onBody);
+  return handler;
 }
 
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest, ArUploadHandlerFunction onUpload){
-  AsyncCallbackWebHandler* handler = new AsyncCallbackWebHandler();
-  handler->setUri(uri);
-  handler->setMethod(method);
-  handler->onRequest(onRequest);
-  handler->onUpload(onUpload);
-  addHandler(handler);
-  return *handler;
+AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
+                                            ArUploadHandlerFunction const& onUpload){
+  AsyncCallbackWebHandler& handler = on(uri,method,onRequest);
+  handler.onUpload(onUpload);
+  return handler;
 }
 
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest){
-  AsyncCallbackWebHandler* handler = new AsyncCallbackWebHandler();
-  handler->setUri(uri);
-  handler->setMethod(method);
-  handler->onRequest(onRequest);
-  addHandler(handler);
-  return *handler;
+AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest){
+  AsyncCallbackWebHandler& handler = on(uri,onRequest);
+  handler.setMethod(method);
+  return handler;
 }
 
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, ArRequestHandlerFunction onRequest){
+AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, ArRequestHandlerFunction const& onRequest){
   AsyncCallbackWebHandler* handler = new AsyncCallbackWebHandler();
   handler->setUri(uri);
   handler->onRequest(onRequest);
@@ -156,32 +145,30 @@ AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, ArRequestHandlerFun
   return *handler;
 }
 
-AsyncStaticWebHandler& AsyncWebServer::serveStatic(const char* uri, fs::FS& fs, const char* path, const char* cache_control){
-  AsyncStaticWebHandler* handler = new AsyncStaticWebHandler(uri, fs, path, cache_control);
+AsyncStaticWebHandler& AsyncWebServer::serveStatic(const char* uri, Dir const& dir, const char* indexFile, const char* cache_control){
+  AsyncStaticWebHandler* handler = new AsyncStaticWebHandler(uri, dir, cache_control);
+  handler->setIndexFile(indexFile);
   addHandler(handler);
   return *handler;
 }
 
-void AsyncWebServer::onNotFound(ArRequestHandlerFunction fn){
+void AsyncWebServer::catchAll(ArRequestHandlerFunction const& fn){
   ((AsyncCallbackWebHandler*)_catchAllHandler)->onRequest(fn);
 }
 
-void AsyncWebServer::onFileUpload(ArUploadHandlerFunction fn){
+void AsyncWebServer::catchAll(ArUploadHandlerFunction const& fn){
   ((AsyncCallbackWebHandler*)_catchAllHandler)->onUpload(fn);
 }
 
-void AsyncWebServer::onRequestBody(ArBodyHandlerFunction fn){
+void AsyncWebServer::catchAll(ArBodyHandlerFunction const& fn){
   ((AsyncCallbackWebHandler*)_catchAllHandler)->onBody(fn);
 }
 
 void AsyncWebServer::reset(){
   _rewrites.free();
   _handlers.free();
-  
-  if (_catchAllHandler != NULL){
-    ((AsyncCallbackWebHandler*)_catchAllHandler)->onRequest(NULL);
-    ((AsyncCallbackWebHandler*)_catchAllHandler)->onUpload(NULL);
-    ((AsyncCallbackWebHandler*)_catchAllHandler)->onBody(NULL);
-  }
-}
 
+  ((AsyncCallbackWebHandler*)_catchAllHandler)->onRequest(NULL);
+  ((AsyncCallbackWebHandler*)_catchAllHandler)->onUpload(NULL);
+  ((AsyncCallbackWebHandler*)_catchAllHandler)->onBody(NULL);
+}

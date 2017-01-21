@@ -1,11 +1,12 @@
-# ESPAsyncWebServer [![Build Status](https://travis-ci.org/me-no-dev/ESPAsyncWebServer.svg?branch=master)](https://travis-ci.org/me-no-dev/ESPAsyncWebServer)
-
-For help and support [![Join the chat at https://gitter.im/me-no-dev/ESPAsyncWebServer](https://badges.gitter.im/me-no-dev/ESPAsyncWebServer.svg)](https://gitter.im/me-no-dev/ESPAsyncWebServer?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+# ESPAsyncWebServer [![Build Status](https://travis-ci.org/Adam5Wu/ESPAsyncWebServer.svg?branch=master)](https://travis-ci.org/Adam5Wu/ESPAsyncWebServer)
 
 Async HTTP and WebSocket Server for ESP8266 Arduino
 
-Requires [ESPAsyncTCP](https://github.com/me-no-dev/ESPAsyncTCP) to work
-To use this library you might need to have the latest git versions of [ESP8266](https://github.com/esp8266/Arduino) Arduino Core
+* [Original Project](https://github.com/me-no-dev/ESPAsyncWebServer)
+* [Modifications of this fork](MODIFICATIONS.md)
+
+Requires [ESPAsyncTCP](https://github.com/me-no-dev/ESPAsyncTCP) and [ESPVFATFS](https://github.com/Adam5Wu/ESPVFATFS) to work.
+To use this library you might need to have the latest git versions of [ESP8266 Fork](https://github.com/Adam5Wu/Arduino) Arduino Core
 
 ## Table of contents
 - [ESPAsyncWebServer ](#espasyncwebserver-)

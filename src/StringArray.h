@@ -30,39 +30,40 @@ class LinkedListNode {
   public:
     LinkedListNode<T>* next;
     LinkedListNode(const T val): _value(val), next(nullptr) {}
-    ~LinkedListNode(){}
+
     const T& value() const { return _value; };
     T& value(){ return _value; }
 };
 
-template <typename T, template<typename> class Item = LinkedListNode>
+template <typename T, template<typename> class ItemT = LinkedListNode>
 class LinkedList {
   public:
-    typedef Item<T> ItemType;
+    typedef ItemT<T> ItemType;
+
+    class Iterator {
+        ItemType* _node;
+      public:
+        Iterator(ItemType* current = nullptr) : _node(current) {}
+        Iterator(const Iterator& i) : _node(i._node) {}
+        Iterator& operator ++() { _node = _node->next; return *this; }
+        bool operator != (const Iterator& i) const { return _node != i._node; }
+        const T& operator * () const { return _node->value(); }
+        const T* operator -> () const { return &_node->value(); }
+    };
+
+    typedef const Iterator ConstIterator;
+
     typedef std::function<void(const T&)> OnRemove;
     typedef std::function<bool(const T&)> Predicate;
+
   private:
     ItemType* _root;
     OnRemove _onRemove;
 
-    class Iterator {
-      ItemType* _node;
-    public:
-      Iterator(ItemType* current = nullptr) : _node(current) {}
-      Iterator(const Iterator& i) : _node(i._node) {}
-      Iterator& operator ++() { _node = _node->next; return *this; }
-      bool operator != (const Iterator& i) const { return _node != i._node; }
-      const T& operator * () const { return _node->value(); }
-      const T* operator -> () const { return &_node->value(); }
-    };
-    
   public:
-    typedef const Iterator ConstIterator;
-    ConstIterator begin() const { return ConstIterator(_root); }
-    ConstIterator end() const { return ConstIterator(nullptr); }
-
     LinkedList(OnRemove onRemove) : _root(nullptr), _onRemove(onRemove) {}
-    ~LinkedList(){}
+    virtual ~LinkedList() { free(); }
+
     void add(const T& t){
       auto it = new ItemType(t);
       if(!_root){
@@ -73,13 +74,12 @@ class LinkedList {
         i->next = it;
       }
     }
-    T& front() const {
-      return _root->value();
-    }
-    
-    bool isEmpty() const {
-      return _root == nullptr;
-    }
+
+    bool isEmpty() const { return _root == nullptr; }
+    T& front() const { return _root->value(); }
+    ConstIterator begin() const { return ConstIterator(_root); }
+    ConstIterator end() const { return ConstIterator(nullptr); }
+
     size_t length() const {
       size_t i = 0;
       auto it = _root;
@@ -89,6 +89,7 @@ class LinkedList {
       }
       return i;
     }
+
     size_t count_if(Predicate predicate) const {
       size_t i = 0;
       auto it = _root;
@@ -103,6 +104,7 @@ class LinkedList {
       }
       return i;
     }
+
     const T* nth(size_t N) const {
       size_t i = 0;
       auto it = _root;
@@ -113,6 +115,7 @@ class LinkedList {
       }
       return nullptr;
     }
+
     bool remove(const T& t){
       auto it = _root;
       auto pit = _root;
@@ -123,11 +126,11 @@ class LinkedList {
           } else {
             pit->next = it->next;
           }
-          
+
           if (_onRemove) {
             _onRemove(it->value());
           }
-          
+
           delete it;
           return true;
         }
@@ -136,6 +139,7 @@ class LinkedList {
       }
       return false;
     }
+
     bool remove_first(Predicate predicate){
       auto it = _root;
       auto pit = _root;
@@ -157,7 +161,7 @@ class LinkedList {
       }
       return false;
     }
-    
+
     void free(){
       while(_root != nullptr){
         auto it = _root;
@@ -171,20 +175,18 @@ class LinkedList {
     }
 };
 
-
 class StringArray : public LinkedList<String> {
-public:
-  
-  StringArray() : LinkedList(nullptr) {}
-  
-  bool containsIgnoreCase(const String& str){
-    for (const auto& s : *this) {
-      if (str.equalsIgnoreCase(s)) {
-        return true;
+  public:
+    StringArray() : LinkedList(nullptr) {}
+
+    bool containsIgnoreCase(const String& str){
+      for (const auto& s : *this) {
+        if (str.equalsIgnoreCase(s)) {
+          return true;
+        }
       }
+      return false;
     }
-    return false;
-  }
 };
 
 

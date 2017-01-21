@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  This file is part of the esp8266 core for Arduino environment.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -37,9 +37,9 @@
 #error Platform not supported
 #endif
 
-#define DEBUGF(...) //Serial.printf(__VA_ARGS__)
-
-
+#define DEBUG(...) Serial.printf(__VA_ARGS__)
+#define DEBUGV(...) //Serial.printf(__VA_ARGS__)
+	
 class AsyncWebServer;
 class AsyncWebServerRequest;
 class AsyncWebServerResponse;
@@ -49,7 +49,7 @@ class AsyncWebRewrite;
 class AsyncWebHandler;
 class AsyncStaticWebHandler;
 class AsyncCallbackWebHandler;
-class AsyncResponseStream;
+class AsyncPrintResponse;
 
 typedef enum {
   HTTP_GET     = 0b00000001,
@@ -178,7 +178,8 @@ class AsyncWebServerRequest {
 
   public:
     File _tempFile;
-    void *_tempObject;
+    Dir _tempDir;
+    String _tempPath;
 
     AsyncWebServerRequest(AsyncWebServer*, AsyncClient*);
     ~AsyncWebServerRequest();
@@ -206,25 +207,42 @@ class AsyncWebServerRequest {
 
     void redirect(const String& url);
 
-    void send(AsyncWebServerResponse *response);
-    void send(int code, const String& contentType=String(), const String& content=String());
-    void send(FS &fs, const String& path, const String& contentType=String(), bool download=false);
-    void send(File content, const String& path, const String& contentType=String(), bool download=false);
-    void send(Stream &stream, const String& contentType, size_t len);
-    void send(const String& contentType, size_t len, AwsResponseFiller callback);
-    void sendChunked(const String& contentType, AwsResponseFiller callback);
-    void send_P(int code, const String& contentType, const uint8_t * content, size_t len);
-    void send_P(int code, const String& contentType, PGM_P content);
+    AsyncPrintResponse *beginPrintResponse(int code, const String& contentType);
 
-    AsyncWebServerResponse *beginResponse(int code, const String& contentType=String(), const String& content=String());
+    AsyncWebServerResponse *beginResponse(int code, const String& content=String(), const String& contentType=String());
     AsyncWebServerResponse *beginResponse(FS &fs, const String& path, const String& contentType=String(), bool download=false);
     AsyncWebServerResponse *beginResponse(File content, const String& path, const String& contentType=String(), bool download=false);
-    AsyncWebServerResponse *beginResponse(Stream &stream, const String& contentType, size_t len);
-    AsyncWebServerResponse *beginResponse(const String& contentType, size_t len, AwsResponseFiller callback);
-    AsyncWebServerResponse *beginChunkedResponse(const String& contentType, AwsResponseFiller callback);
-    AsyncResponseStream *beginResponseStream(const String& contentType, size_t bufferSize=1460);
-    AsyncWebServerResponse *beginResponse_P(int code, const String& contentType, const uint8_t * content, size_t len);
-    AsyncWebServerResponse *beginResponse_P(int code, const String& contentType, PGM_P content);
+    AsyncWebServerResponse *beginResponse(int code, Stream &content, const String& contentType, size_t len);
+    AsyncWebServerResponse *beginResponse(int code,  AwsResponseFiller callback, const String& contentType, size_t len);
+    AsyncWebServerResponse *beginChunkedResponse(int code,  AwsResponseFiller callback, const String& contentType);
+    AsyncWebServerResponse *beginResponse_P(int code, const uint8_t * content, const String& contentType, size_t len);
+    AsyncWebServerResponse *beginResponse_P(int code, PGM_P content, const String& contentType);
+
+    void send(AsyncWebServerResponse *response);
+
+    inline void send(int code, const String& content=String(), const String& contentType=String())
+    { send(beginResponse(code, content, contentType)); }
+
+    inline void send(FS &fs, const String& path, const String& contentType=String(), bool download=false)
+    { send(beginResponse(fs, path, contentType, download)); }
+
+    inline void send(File content, const String& path, const String& contentType=String(), bool download=false)
+    { send(beginResponse(content, path, contentType, download)); }
+
+    inline void send(int code, Stream &content, const String& contentType, size_t len)
+    { send(beginResponse(code, content, contentType, len)); }
+
+    inline void send(int code, AwsResponseFiller callback, const String& contentType, size_t len)
+    { send(beginResponse(code, callback, contentType, len)); }
+
+    inline void sendChunked(int code, AwsResponseFiller callback, const String& contentType)
+    { send(beginChunkedResponse(code, callback, contentType)); }
+
+    inline void send_P(int code, const uint8_t * content, const String& contentType, size_t len)
+    { send(beginResponse_P(code, content, contentType,  len)); }
+
+    inline void send_P(int code, PGM_P content, const String& contentType)
+    { send(beginResponse_P(code, content, contentType)); }
 
     size_t headers() const;                     // get header count
     bool hasHeader(const String& name) const;   // check if header exists
@@ -315,31 +333,26 @@ class AsyncWebServerResponse {
   protected:
     int _code;
     LinkedList<AsyncWebHeader *> _headers;
-    String _contentType;
-    size_t _contentLength;
-    bool _sendContentLength;
-    bool _chunked;
-    size_t _headLength;
-    size_t _sentLength;
-    size_t _ackedLength;
-    size_t _writtenLength;
     WebResponseState _state;
-    const char* _responseCodeToString(int code);
+
+    static const char* _responseCodeToString(int code);
 
   public:
-    AsyncWebServerResponse();
-    virtual ~AsyncWebServerResponse();
+    AsyncWebServerResponse(int code);
+    virtual ~AsyncWebServerResponse() {}
+
     virtual void setCode(int code);
-    virtual void setContentLength(size_t len);
-    virtual void setContentType(const String& type);
     virtual void addHeader(const String& name, const String& value);
-    virtual String _assembleHead(uint8_t version);
-    virtual bool _started() const;
-    virtual bool _finished() const;
-    virtual bool _failed() const;
-    virtual bool _sourceValid() const;
-    virtual void _respond(AsyncWebServerRequest *request);
-    virtual size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time);
+
+    virtual void _respond(AsyncWebServerRequest *request) = 0;
+    virtual size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) = 0;
+
+    inline void MUSTNOTSTART(void) const { while (_started()) panic(); }
+    inline bool _started(void) const { return _state > RESPONSE_SETUP; }
+    inline bool _sending(void) const { return _started() && _state < RESPONSE_WAIT_ACK; }
+    inline bool _waitack(void) const { return _state == RESPONSE_WAIT_ACK; }
+    inline bool _finished(void) const { return _state > RESPONSE_WAIT_ACK; }
+    inline bool _failed(void) const { return _state == RESPONSE_FAILED; }
 };
 
 /*
@@ -349,6 +362,9 @@ class AsyncWebServerResponse {
 typedef std::function<void(AsyncWebServerRequest *request)> ArRequestHandlerFunction;
 typedef std::function<void(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final)> ArUploadHandlerFunction;
 typedef std::function<void(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)> ArBodyHandlerFunction;
+
+#define DEFAULT_CACHE_CTRL "public, no-cache"
+#define DEFAULT_INDEX_FILE "index.htm"
 
 class AsyncWebServer {
   protected:
@@ -374,20 +390,25 @@ class AsyncWebServer {
 
     AsyncWebHandler& addHandler(AsyncWebHandler* handler);
     bool removeHandler(AsyncWebHandler* handler);
-  
-    AsyncCallbackWebHandler& on(const char* uri, ArRequestHandlerFunction onRequest);
-    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest);
-    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest, ArUploadHandlerFunction onUpload);
-    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest, ArUploadHandlerFunction onUpload, ArBodyHandlerFunction onBody);
 
-    AsyncStaticWebHandler& serveStatic(const char* uri, fs::FS& fs, const char* path, const char* cache_control = NULL);
+    AsyncCallbackWebHandler& on(const char* uri, ArRequestHandlerFunction const& onRequest);
+    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest);
+    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
+                                ArUploadHandlerFunction const& onUpload);
+    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
+                                ArUploadHandlerFunction const& onUpload, ArBodyHandlerFunction const& onBody);
 
-    void onNotFound(ArRequestHandlerFunction fn);  //called when handler is not assigned
-    void onFileUpload(ArUploadHandlerFunction fn); //handle file uploads
-    void onRequestBody(ArBodyHandlerFunction fn); //handle posts with plain body content (JSON often transmitted this way as a request)
+    AsyncStaticWebHandler& serveStatic(const char* uri, Dir const& dir,
+                                       const char* indexFile = DEFAULT_INDEX_FILE,
+                                       const char* cache_control = DEFAULT_CACHE_CTRL);
 
-    void reset(); //remove all writers and handlers, with onNotFound/onFileUpload/onRequestBody 
-  
+    // Called when handler is not assigned
+    void catchAll(ArRequestHandlerFunction const& onRequest);
+    void catchAll(ArUploadHandlerFunction const& onUpload);
+    void catchAll(ArBodyHandlerFunction const& onBody);
+
+    void reset(); //remove all writers and handlers, including catch-all handlers
+
     void _handleDisconnect(AsyncWebServerRequest *request);
     void _attachHandler(AsyncWebServerRequest *request);
     void _rewriteRequest(AsyncWebServerRequest *request);
@@ -395,7 +416,8 @@ class AsyncWebServer {
 
 #include "WebResponseImpl.h"
 #include "WebHandlerImpl.h"
+
 #include "AsyncWebSocket.h"
 #include "AsyncEventSource.h"
-
+	
 #endif /* _AsyncWebServer_H_ */

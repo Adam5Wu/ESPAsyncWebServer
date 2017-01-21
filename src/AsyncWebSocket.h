@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  This file is part of the esp8266 core for Arduino environment.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -211,15 +211,13 @@ class AsyncWebSocket: public AsyncWebHandler {
 };
 
 //WebServer response to authenticate the socket and detach the tcp client from the web server request
-class AsyncWebSocketResponse: public AsyncWebServerResponse {
+class AsyncWebSocketResponse: public AsyncSimpleResponse {
   private:
-    String _content;
     AsyncWebSocket *_server;
+  protected:
+    virtual void requestCleanup(AsyncWebServerRequest *request) override;
   public:
     AsyncWebSocketResponse(const String& key, AsyncWebSocket *server);
-    void _respond(AsyncWebServerRequest *request);
-    size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time);
-    bool _sourceValid() const { return true; }
 };
 
 

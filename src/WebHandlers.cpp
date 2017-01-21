@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  This file is part of the esp8266 core for Arduino environment.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -21,35 +21,19 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
-AsyncStaticWebHandler::AsyncStaticWebHandler(const char* uri, FS& fs, const char* path, const char* cache_control)
-  : _fs(fs), _uri(uri), _path(path), _default_file("index.htm"), _cache_control(cache_control), _last_modified("")
+AsyncStaticWebHandler::AsyncStaticWebHandler(const char* uri, Dir const& dir, const char* cache_control)
+  : _dir(dir), _uri(*uri=='/'?uri:(String('/')+uri)), _cache_control(cache_control)
 {
-  // Ensure leading '/'
-  if (_uri.length() == 0 || _uri[0] != '/') _uri = "/" + _uri;
-  if (_path.length() == 0 || _path[0] != '/') _path = "/" + _path;
+  // Ensure trailing '/'
+  if (_uri.end()[-1] != '/') _uri+= '/';
 
-  // If path ends with '/' we assume a hint that this is a directory to improve performance.
-  // However - if it does not end with '/' we, can't assume a file, path can still be a directory.
-  _isDir = _path[_path.length()-1] == '/';
-
-  // Remove the trailing '/' so we can handle default file
-  // Notice that root will be "" not "/"
-  if (_uri[_uri.length()-1] == '/') _uri = _uri.substring(0, _uri.length()-1);
-  if (_path[_path.length()-1] == '/') _path = _path.substring(0, _path.length()-1);
-
-  // Reset stats
-  _gzipFirst = false;
-  _gzipStats = 0xF8;
-}
-
-AsyncStaticWebHandler& AsyncStaticWebHandler::setIsDir(bool isDir){
-  _isDir = isDir;
-  return *this;
-}
-
-AsyncStaticWebHandler& AsyncStaticWebHandler::setDefaultFile(const char* filename){
-  _default_file = String(filename);
-  return *this;
+  // Set defaults
+  //_indexFile = "";
+  _gzLookup = true;
+  _gzFirst = true;
+  //_onIndex = NULL;
+  _onPathNotFound = std::bind(&AsyncStaticWebHandler::pathNotFound, this, std::placeholders::_1);
+  _onIndexNotFound = std::bind(&AsyncStaticWebHandler::sendDirList, this, std::placeholders::_1);
 }
 
 AsyncStaticWebHandler& AsyncStaticWebHandler::setCacheControl(const char* cache_control){
@@ -57,152 +41,183 @@ AsyncStaticWebHandler& AsyncStaticWebHandler::setCacheControl(const char* cache_
   return *this;
 }
 
-AsyncStaticWebHandler& AsyncStaticWebHandler::setLastModified(const char* last_modified){
-  _last_modified = String(last_modified);
+AsyncStaticWebHandler& AsyncStaticWebHandler::setIndexFile(const char* filename){
+  if (_onIndex)
+    DEBUGV("[AsyncStaticWebHandler::setIndexFile] Ineffective configuration!\n");
+  _indexFile = filename;
   return *this;
 }
 
-AsyncStaticWebHandler& AsyncStaticWebHandler::setLastModified(struct tm* last_modified){
-  char result[30];
-  strftime (result,30,"%a, %d %b %Y %H:%M:%S %Z", last_modified);
-  return setLastModified((const char *)result);
-}
-#ifdef ESP8266
-AsyncStaticWebHandler& AsyncStaticWebHandler::setLastModified(time_t last_modified){
-  return setLastModified((struct tm *)gmtime(&last_modified));
+AsyncStaticWebHandler& AsyncStaticWebHandler::lookupGZ(bool gzLookup, bool gzFirst) {
+  _gzLookup = gzLookup;
+  _gzFirst = gzFirst;
 }
 
-AsyncStaticWebHandler& AsyncStaticWebHandler::setLastModified(){
-  time_t last_modified;
-  if(time(&last_modified) == 0) //time is not yet set
-    return *this;
-  return setLastModified(last_modified);
+AsyncStaticWebHandler& AsyncStaticWebHandler::onIndex(ArRequestHandlerFunction const& onIndex) {
+  _onIndex = onIndex;
 }
-#endif
+
+AsyncStaticWebHandler& AsyncStaticWebHandler::onPathNotFound(ArRequestHandlerFunction const& onPathNotFound) {
+  _onPathNotFound = onPathNotFound;
+}
+
+AsyncStaticWebHandler& AsyncStaticWebHandler::onIndexNotFound(ArRequestHandlerFunction const& onIndexNotFound) {
+  _onIndexNotFound = onIndexNotFound;
+}
+
 bool AsyncStaticWebHandler::canHandle(AsyncWebServerRequest *request){
-  if (request->method() == HTTP_GET &&
-      request->url().startsWith(_uri) &&
-      _getFile(request)) {
-
-    // We interested in "If-Modified-Since" header to check if file was modified
-    if (_last_modified.length())
-      request->addInterestingHeader("If-Modified-Since");
-
-    if(_cache_control.length())
+  if (request->method() == HTTP_GET && request->url().startsWith(_uri)) {
+    DEBUGV("[AsyncStaticWebHandler::canHandle] Match: '%s'\n", request->url().c_str());
+    // We have a match, deal with it
+    _prepareRequest(request->url().substring(_uri.length()), request);
+    if (!_cache_control.empty()) {
+      // We interested in "If-None-Match" header to check if file was modified
       request->addInterestingHeader("If-None-Match");
-
-    DEBUGF("[AsyncStaticWebHandler::canHandle] TRUE\n");
+    }
+    return true;
+  } else if (_uri.startsWith(request->url()) && request->url().length()+1 == _uri.length()) {
+    DEBUGV("[AsyncStaticWebHandler::canHandle] Redir: '%s'\n", request->url().c_str());
+    // Close, just need a gentle push
+    _requestHandler = std::bind(&AsyncStaticWebHandler::dirRedirect, this, std::placeholders::_1);
     return true;
   }
 
   return false;
 }
 
-bool AsyncStaticWebHandler::_getFile(AsyncWebServerRequest *request)
+bool AsyncStaticWebHandler::_prepareRequest(String subpath, AsyncWebServerRequest *request)
 {
-  // Remove the found uri
-  String path = request->url().substring(_uri.length());
+  bool ServeDir = false;
 
-  // We can skip the file check and look for default if request is to the root of a directory or that request path ends with '/'
-  bool canSkipFileCheck = (_isDir && path.length() == 0) || (path.length() && path[path.length()-1] == '/');
-
-  path = _path + path;
-
-  // Do we have a file or .gz file
-  if (!canSkipFileCheck && _fileExists(request, path))
-    return true;
-
-  // Can't handle if not default file
-  if (_default_file.length() == 0)
-    return false;
-
-  // Try to add default file, ensure there is a trailing '/' ot the path.
-  if (path.length() == 0 || path[path.length()-1] != '/')
-    path += "/";
-  path += _default_file;
-
-  return _fileExists(request, path);
-}
-
-bool AsyncStaticWebHandler::_fileExists(AsyncWebServerRequest *request, const String& path)
-{
-  bool fileFound = false;
-  bool gzipFound = false;
-
-  String gzip = path + ".gz";
-
-  if (_gzipFirst) {
-    request->_tempFile = _fs.open(gzip, "r");
-    gzipFound = request->_tempFile == true;
-    if (!gzipFound){
-      request->_tempFile = _fs.open(path, "r");
-      fileFound = request->_tempFile == true;
+  if (subpath.empty()) {
+    DEBUGV("[AsyncStaticWebHandler::_prepareRequest] RootDir\n");
+    ServeDir = true;
+    // Requesting root dir
+    request->_tempDir = _dir;
+  } else if (subpath.end()[-1] == '/') {
+    DEBUGV("[AsyncStaticWebHandler::_prepareRequest] SubDir: '%s'\n", subpath.c_str());
+    ServeDir = true;
+    // Requesting sub dir
+    request->_tempDir = _dir.openDir(subpath.c_str());
+    if (!request->_tempDir) {
+      _requestHandler = _onPathNotFound;
+      return false;
     }
   } else {
-    request->_tempFile = _fs.open(path, "r");
-    fileFound = request->_tempFile == true;
-    if (!fileFound){
-      request->_tempFile = _fs.open(gzip, "r");
-      gzipFound = request->_tempFile == true;
+    DEBUGV("[AsyncStaticWebHandler::_prepareRequest] Path: '%s'\n", subpath.c_str());
+  }
+
+  if (ServeDir) {
+    // We have a request on a valid dir
+    if (_onIndex) {
+      DEBUGV("[AsyncStaticWebHandler::_prepareRequest] Dir onIndex\n");
+      _requestHandler = _onIndex;
+      return true;
+    } else {
+      if (!_indexFile.empty()) {
+        // Need to look up index file
+        subpath+= _indexFile;
+      } else {
+        // No index file lookup
+        subpath.clear();
+      }
     }
   }
 
-  bool found = fileFound || gzipFound;
+  // Handle file request path
+  String gzPath;
+  if (!subpath.empty()) {
+    DEBUGV("[AsyncStaticWebHandler::_prepareRequest] File lookup: '%s'\n",subpath.c_str());
+    if (_gzLookup) {
+      if (_gzFirst) {
+        gzPath = subpath + ".gz";
+        DEBUGV("[AsyncStaticWebHandler::_prepareRequest] GZFirst: '%s'\n",gzPath.c_str());
+        request->_tempFile = _dir.openFile(gzPath.c_str(), "r");
+        if (!request->_tempFile) {
+          gzPath.clear();
+          request->_tempFile = _dir.openFile(subpath.c_str(), "r");
+        }
+      } else {
+        request->_tempFile = _dir.openFile(subpath.c_str(), "r");
+        if (!request->_tempFile) {
+          gzPath = subpath + ".gz";
+          DEBUGV("[AsyncStaticWebHandler::_prepareRequest] !GZFirst: '%s'\n",gzPath.c_str());
+          request->_tempFile = _dir.openFile(gzPath.c_str(), "r");
+        }
+      }
+    } else {
+      request->_tempFile = _dir.openFile(subpath.c_str(), "r");
+    }
 
-  if (found) {
-    // Extract the file name from the path and keep it in _tempObject
-    size_t pathLen = path.length();
-    char * _tempPath = (char*)malloc(pathLen+1);
-    snprintf(_tempPath, pathLen+1, "%s", path.c_str());
-    request->_tempObject = (void*)_tempPath;
-
-    // Calculate gzip statistic
-    _gzipStats = (_gzipStats << 1) + (gzipFound ? 1 : 0);
-    if (_gzipStats == 0x00) _gzipFirst = false; // All files are not gzip
-    else if (_gzipStats == 0xFF) _gzipFirst = true; // All files are gzip
-    else _gzipFirst = _countBits(_gzipStats) > 4; // IF we have more gzip files - try gzip first
+    if (!request->_tempFile && !ServeDir) {
+      // Check the possibility that it is a dir
+      if (_dir.isDir(subpath.c_str())) {
+        // It is a dir that need a gentle push
+        _requestHandler = std::bind(&AsyncStaticWebHandler::dirRedirect, this, std::placeholders::_1);
+      } else {
+        DEBUGV("[AsyncStaticWebHandler::_prepareRequest] File not found\n");
+        // It is not a file, nor dir
+        _requestHandler = _onPathNotFound;
+      }
+      return false;
+    }
   }
 
-  return found;
-}
-
-uint8_t AsyncStaticWebHandler::_countBits(const uint8_t value) const
-{
-  uint8_t w = value;
-  uint8_t n;
-  for (n=0; w!=0; n++) w&=w-1;
-  return n;
+  if (request->_tempFile) {
+    // We can serve a data file
+    if (!gzPath.empty()) {
+      DEBUGV("[AsyncStaticWebHandler::_prepareRequest] GZ file '%s'\n",gzPath.c_str());
+      request->_tempPath = subpath;
+    }
+    _requestHandler = std::bind(&AsyncStaticWebHandler::sendDataFile, this, std::placeholders::_1);
+    return true;
+  } else {
+    DEBUGV("[AsyncStaticWebHandler::_prepareRequest] Dir index not found\n");
+    // Dir index file not found
+    _requestHandler = _onIndexNotFound;
+    return false;
+  }
 }
 
 void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request)
 {
-  // Get the filename from request->_tempObject and free it
-  String filename = String((char*)request->_tempObject);
-  free(request->_tempObject);
-  request->_tempObject = NULL;
+  if (_requestHandler)
+    _requestHandler(request);
+  else
+    request->send(500); // Should not reach
+}
 
-  if (request->_tempFile == true) {
-    String etag = String(request->_tempFile.size());
-    if (_last_modified.length() && _last_modified == request->header("If-Modified-Since")) {
-      request->_tempFile.close();
-      request->send(304); // Not modified
-    } else if (_cache_control.length() && request->hasHeader("If-None-Match") && request->header("If-None-Match").equals(etag)) {
-      request->_tempFile.close();
-      AsyncWebServerResponse * response = new AsyncBasicResponse(304); // Not modified
+void AsyncStaticWebHandler::dirRedirect(AsyncWebServerRequest *request) {
+  // May not be compliant with standard (no protocol and server), but seems to work OK with most browsers
+  request->redirect(request->url()+'/');
+}
+
+void AsyncStaticWebHandler::sendDirList(AsyncWebServerRequest *request) {
+  DEBUGV("[AsyncStaticWebHandler::sendDirList] Forbid dir list\n");
+  request->send(403); // Dir listing is forbidden
+}
+
+void AsyncStaticWebHandler::pathNotFound(AsyncWebServerRequest *request) {
+  DEBUGV("[AsyncStaticWebHandler::sendDirList] Path not found\n");
+  request->send(404); // File not found
+}
+
+void AsyncStaticWebHandler::sendDataFile(AsyncWebServerRequest *request) {
+  time_t fm = request->_tempFile.mtime();
+  size_t fs = request->_tempFile.size();
+  String etag = "W/\""+String(fs)+'@'+String(fm,16)+'"';
+  if (etag == request->header("If-None-Match")) {
+    DEBUGV("[AsyncStaticWebHandler::_prepareRequest] Not modified\n");
+    request->_tempFile.close();
+    request->send(304); // Not modified
+  } else {
+    DEBUGV("[AsyncStaticWebHandler::_prepareRequest] Serving '%s'\n",request->_tempFile.name());
+    const char* filepath = request->_tempPath.empty()? request->_tempFile.name() : request->_tempPath.c_str();
+    AsyncWebServerResponse * response = new AsyncFileResponse(request->_tempFile, filepath);
+    if (!_cache_control.empty()){
       response->addHeader("Cache-Control", _cache_control);
       response->addHeader("ETag", etag);
-      request->send(response);
-    } else {
-      AsyncWebServerResponse * response = new AsyncFileResponse(request->_tempFile, filename);
-      if (_last_modified.length())
-        response->addHeader("Last-Modified", _last_modified);
-      if (_cache_control.length()){
-        response->addHeader("Cache-Control", _cache_control);
-        response->addHeader("ETag", etag);
-      }
-      request->send(response);
     }
-  } else {
-    request->send(404);
+    request->send(response);
   }
 }
