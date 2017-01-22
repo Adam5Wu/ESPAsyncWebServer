@@ -26,7 +26,6 @@ script:
   - wait && export PATH="$ARDUINOIDE:$PATH"
   - ( cd "$ARDUINOSDK"/esp8266/tools && python get.py ) &
   - export SKETCHBOOK=`arduino --get-pref sketchbook.path`
-  - ln -s "$TRAVIS_BUILD_DIR" "$SKETCHBOOK/$THISSKETCH"
   - SKETCHLIB="$SKETCHBOOK"/libraries
   - mkdir -p "$SKETCHLIB"
   - for LIBREPO in "${LIBREPOS[@]}" ; do
@@ -34,6 +33,7 @@ script:
       echo "- Retriving library '$LIBNAME'..." ;
       git clone -q "$LIBREPO" "$SKETCHLIB/$LIBNAME" &
     done
+  - ln -s "$TRAVIS_BUILD_DIR" "$SKETCHBOOK/$THISSKETCH"
   - source "$TRAVIS_BUILD_DIR"/travis/common.sh
   - wait && build_sketches arduino "$SKETCHBOOK/$THISSKETCH" esp8266
       generic:CpuFrequency=80,FlashFreq=40,FlashMode=dio,UploadSpeed=115200,FlashSize=2M
