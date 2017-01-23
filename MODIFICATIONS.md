@@ -29,7 +29,7 @@
 
 ## Request Parsing
 
-- A small modification is done on `AsyncWebServerRequest::_onData()` method, converting the code logic from recursive to iterative.
+- [[Merged](https://github.com/me-no-dev/ESPAsyncWebServer/pull/120)] A small modification is done on `AsyncWebServerRequest::_onData()` method, converting the code logic from recursive to iterative.
 
 	While I debug some crash dumps during development, I often observe an amazingly long (10+ hops) chain of `_onData()` calls on the stack trace. This modification should reduce the stack usage and eliminate those long chains.
 
