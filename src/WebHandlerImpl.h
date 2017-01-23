@@ -25,18 +25,46 @@
 #include <time.h>
 #include <FS.h>
 
-class AsyncStaticWebHandler: public AsyncWebHandler {
-  private:
+class AsyncPathURIWebHandler: public AsyncWebHandler {
+  protected:
+    String _uri;
+    WebRequestMethodComposite _method;
     ArRequestHandlerFunction _requestHandler;
 
+  public:
+    AsyncPathURIWebHandler(const String& uri, WebRequestMethodComposite method) {
+      setUri(uri);
+      setMethod(method);
+    }
+
+    void setUri(const String& uri) {
+      _uri = uri[0]=='/'? uri : '/' + uri;
+      // Ensure trailing '/'
+      if (_uri.end()[-1] != '/') _uri+= '/';
+    }
+    void setMethod(WebRequestMethodComposite method) { _method = method; }
+
+    void dirRedirect(AsyncWebServerRequest *request) {
+      // May not be compliant with standard (no protocol and server), but seems to work OK with most browsers
+      request->redirect(request->url()+'/');
+    }
+    virtual bool canHandle(AsyncWebServerRequest *request) override;
+    virtual void handleRequest(AsyncWebServerRequest *request) override {
+      if (_requestHandler) _requestHandler(request);
+      else request->send(500); // Should not reach
+    }
+};
+
+class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
+  private:
     bool _prepareRequest(String&& subpath, AsyncWebServerRequest *request);
-    void dirRedirect(AsyncWebServerRequest *request);
+
   protected:
     Dir _dir;
-    String _uri;
     String _cache_control;
     String _indexFile;
     bool _gzLookup, _gzFirst;
+
     ArRequestHandlerFunction _onIndex;
     ArRequestHandlerFunction _onPathNotFound;
     ArRequestHandlerFunction _onIndexNotFound;
@@ -44,10 +72,12 @@ class AsyncStaticWebHandler: public AsyncWebHandler {
     virtual void sendDirList(AsyncWebServerRequest *request);
     virtual void pathNotFound(AsyncWebServerRequest *request);
     virtual void sendDataFile(AsyncWebServerRequest *request);
+
   public:
-    AsyncStaticWebHandler(const char* uri, Dir const& dir, const char* cache_control);
-    virtual bool canHandle(AsyncWebServerRequest *request) override final;
-    virtual void handleRequest(AsyncWebServerRequest *request) override final;
+    AsyncStaticWebHandler(const String& uri, Dir const& dir, const char* cache_control);
+
+    virtual bool canHandle(AsyncWebServerRequest *request) override;
+
     AsyncStaticWebHandler& setCacheControl(const char* cache_control);
     AsyncStaticWebHandler& lookupGZ(bool gzLookup, bool gzFirst);
     AsyncStaticWebHandler& setIndexFile(const char* filename);
@@ -57,43 +87,30 @@ class AsyncStaticWebHandler: public AsyncWebHandler {
     AsyncStaticWebHandler& onIndexNotFound(ArRequestHandlerFunction const& onIndexNotFound);
 };
 
-class AsyncCallbackWebHandler: public AsyncWebHandler {
-  private:
+class AsyncCallbackWebHandler: public AsyncPathURIWebHandler {
   protected:
-    String _uri;
     WebRequestMethodComposite _method;
     ArRequestHandlerFunction _onRequest;
     ArUploadHandlerFunction _onUpload;
     ArBodyHandlerFunction _onBody;
+
   public:
-    AsyncCallbackWebHandler() : _uri(), _method(HTTP_ANY), _onRequest(NULL), _onUpload(NULL), _onBody(NULL){}
-    void setUri(const String& uri){ _uri = uri; }
-    void setMethod(WebRequestMethodComposite method){ _method = method; }
+    AsyncCallbackWebHandler(const String& uri = String(), WebRequestMethodComposite method = HTTP_ANY)
+    : AsyncPathURIWebHandler(uri, method), _onRequest(NULL), _onUpload(NULL), _onBody(NULL) {}
+
     void onRequest(ArRequestHandlerFunction const& fn){ _onRequest = fn; }
     void onUpload(ArUploadHandlerFunction const& fn){ _onUpload = fn; }
     void onBody(ArBodyHandlerFunction const& fn){ _onBody = fn; }
 
-    virtual bool canHandle(AsyncWebServerRequest *request) override final{
-
-      if(!_onRequest)
-        return false;
-
-      if(!(_method & request->method()))
-        return false;
-
-      if(_uri.length() && (_uri != request->url() && !request->url().startsWith(_uri+"/")))
-        return false;
-
-      request->addInterestingHeader("ANY");
-      return true;
+    virtual bool canHandle(AsyncWebServerRequest *request) override {
+      if (AsyncPathURIWebHandler::canHandle(request)) {
+        if (!_requestHandler) request->addInterestingHeader("ANY");
+        else _requestHandler = _onRequest;
+        return true;
+      }
+      return false;
     }
 
-    virtual void handleRequest(AsyncWebServerRequest *request) override final {
-      if(_onRequest)
-        _onRequest(request);
-      else
-        request->send(500);
-    }
     virtual void handleUpload(AsyncWebServerRequest *request, const String& filename, size_t index,
                               uint8_t *data, size_t len, bool final) override final {
       if(_onUpload)

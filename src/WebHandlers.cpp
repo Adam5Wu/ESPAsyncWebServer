@@ -21,12 +21,36 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
-AsyncStaticWebHandler::AsyncStaticWebHandler(const char* uri, Dir const& dir, const char* cache_control)
-  : _dir(dir), _uri(*uri=='/'?uri:(String('/')+uri)), _cache_control(cache_control)
-{
-  // Ensure trailing '/'
-  if (_uri.end()[-1] != '/') _uri+= '/';
+/*
+ * Path-based URI handler
+ * */
 
+bool AsyncPathURIWebHandler::canHandle(AsyncWebServerRequest *request) {
+  if (!(_method & request->method())) return false;
+
+  if (request->url().startsWith(_uri)) {
+    ESPWS_DEBUGV("[AsyncPathURIWebHandler::canHandle] Match: '%s'\n", request->url().c_str());
+		_requestHandler = NULL;
+    return true;
+  }
+
+  if (_uri.startsWith(request->url()) && request->url().length()+1 == _uri.length()) {
+    // Matched directory without final slash
+    ESPWS_DEBUGV("[AsyncPathURIWebHandler::canHandle] Redir: '%s'\n", request->url().c_str());
+    _requestHandler = std::bind(&AsyncPathURIWebHandler::dirRedirect, this, std::placeholders::_1);
+    return true;
+  }
+
+  return false;
+}
+
+/*
+ * Static Directory & File handler
+ * */
+
+AsyncStaticWebHandler::AsyncStaticWebHandler(const String& uri, Dir const& dir, const char* cache_control)
+  : AsyncPathURIWebHandler(uri, HTTP_GET), _dir(dir), _cache_control(cache_control)
+{
   // Set defaults
   //_indexFile = "";
   _gzLookup = true;
@@ -66,23 +90,17 @@ AsyncStaticWebHandler& AsyncStaticWebHandler::onIndexNotFound(ArRequestHandlerFu
 }
 
 bool AsyncStaticWebHandler::canHandle(AsyncWebServerRequest *request){
-  if (request->method() == HTTP_GET && request->url().startsWith(_uri)) {
-    ESPWS_DEBUGV("[AsyncStaticWebHandler::canHandle] Match: '%s'\n", request->url().c_str());
+  bool Ret = AsyncPathURIWebHandler::canHandle(request);
+  if (Ret && !_requestHandler) {
     // We have a match, deal with it
     _prepareRequest(request->url().substring(_uri.length()), request);
     if (!_cache_control.empty()) {
       // We interested in "If-None-Match" header to check if file was modified
       request->addInterestingHeader("If-None-Match");
     }
-    return true;
-  } else if (_uri.startsWith(request->url()) && request->url().length()+1 == _uri.length()) {
-    ESPWS_DEBUGV("[AsyncStaticWebHandler::canHandle] Redir: '%s'\n", request->url().c_str());
-    // Close, just need a gentle push
-    _requestHandler = std::bind(&AsyncStaticWebHandler::dirRedirect, this, std::placeholders::_1);
-    return true;
   }
 
-  return false;
+  return Ret;
 }
 
 bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequest *request)
@@ -153,7 +171,7 @@ bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequ
       // Check the possibility that it is a dir
       if (_dir.isDir(subpath.c_str())) {
         // It is a dir that need a gentle push
-        _requestHandler = std::bind(&AsyncStaticWebHandler::dirRedirect, this, std::placeholders::_1);
+        _requestHandler = std::bind(&AsyncPathURIWebHandler::dirRedirect, this, std::placeholders::_1);
       } else {
         ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] File not found\n");
         // It is not a file, nor dir
@@ -177,19 +195,6 @@ bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequ
     _requestHandler = _onIndexNotFound;
     return false;
   }
-}
-
-void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request)
-{
-  if (_requestHandler)
-    _requestHandler(request);
-  else
-    request->send(500); // Should not reach
-}
-
-void AsyncStaticWebHandler::dirRedirect(AsyncWebServerRequest *request) {
-  // May not be compliant with standard (no protocol and server), but seems to work OK with most browsers
-  request->redirect(request->url()+'/');
 }
 
 void AsyncStaticWebHandler::sendDirList(AsyncWebServerRequest *request) {
