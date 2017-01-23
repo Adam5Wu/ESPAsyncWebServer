@@ -25,9 +25,11 @@
 
 class AsyncSimpleResponse: public AsyncWebServerResponse {
   private:
-    PrintString _head;
+    String _status;
 
   protected:
+    String _headers;
+
     uint8_t const *_sendbuf;
     size_t _bufLen;
     size_t _bufSent;
@@ -52,6 +54,7 @@ class AsyncSimpleResponse: public AsyncWebServerResponse {
     AsyncSimpleResponse(int code);
     ~AsyncSimpleResponse() { releaseSendBuf(); }
 
+    virtual void addHeader(const String& name, const String& value) override;
     void _respond(AsyncWebServerRequest *request);
     size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time);
 };
@@ -72,28 +75,34 @@ class AsyncBasicResponse: public AsyncSimpleResponse {
     virtual void setContentType(const String& type);
 };
 
-class AsyncStringResponse: public AsyncBasicResponse {
+class AsyncStringRefResponse: public AsyncBasicResponse {
   private:
-    String _content;
+    String const &_content;
 
   protected:
     virtual void assembleHead(uint8_t version) override;
     virtual bool prepareContentSendBuf(size_t space) override;
 
   public:
-    AsyncStringResponse(int code, const String& content, const String& contentType=String());
+    AsyncStringRefResponse(int code, const String& content, const String& contentType=String());
 };
 
-class AsyncPrintResponse: public AsyncBasicResponse, public PrintString {
+class AsyncStringResponse: public AsyncStringRefResponse {
   private:
-    PrintString _content;
-
-  protected:
-    virtual void assembleHead(uint8_t version) override;
-    virtual bool prepareContentSendBuf(size_t space) override;
+    String __content;
 
   public:
-    AsyncPrintResponse(int code, const String& contentType=String());
+    AsyncStringResponse(int code, const String& content, const String& contentType=String())
+      : AsyncStringRefResponse(code, __content, contentType), __content(content) {}
+};
+
+class AsyncPrintResponse: public AsyncStringRefResponse, public Print {
+  private:
+    PrintString __content;
+
+  public:
+    AsyncPrintResponse(int code, const String& contentType=String())
+      : AsyncStringRefResponse(code, __content, contentType) {}
 
     size_t write(const uint8_t *data, size_t len);
     size_t write(uint8_t data) { return write(&data, 1); }
@@ -120,7 +129,7 @@ class AsyncFileResponse: public AsyncBufferedResponse {
 
   public:
     AsyncFileResponse(FS &fs, const String& path, const String& contentType=String(), bool download=false)
-    : AsyncFileResponse(fs.open(path,"r"), path, contentType, download) {}
+      : AsyncFileResponse(fs.open(path,"r"), path, contentType, download) {}
 
     AsyncFileResponse(File const& content, const String& path, const String& contentType=String(), bool download=false);
 };

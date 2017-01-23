@@ -37,9 +37,25 @@
 #error Platform not supported
 #endif
 
-#define DEBUG(...) Serial.printf(__VA_ARGS__)
-#define DEBUGV(...) //Serial.printf(__VA_ARGS__)
-	
+#define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
+#define ESPWS_DEBUG_LEVEL 0
+
+#if ESPWS_DEBUG_LEVEL < 1
+  #define ESPWS_DEBUGDO(...)
+  #define ESPWS_DEBUG(...)
+#else
+  #define ESPWS_DEBUGDO(...) __VA_ARGS__
+  #define ESPWS_DEBUG(...) Serial.printf(__VA_ARGS__)
+#endif
+
+#if ESPWS_DEBUG_LEVEL < 2
+  #define ESPWS_DEBUGVDO(...)
+  #define ESPWS_DEBUGV(...)
+#else
+  #define ESPWS_DEBUGVDO(...) __VA_ARGS__
+  #define ESPWS_DEBUGV(...) Serial.printf(__VA_ARGS__)
+#endif
+
 class AsyncWebServer;
 class AsyncWebServerRequest;
 class AsyncWebServerResponse;
@@ -77,7 +93,12 @@ class AsyncWebParameter {
 
   public:
 
-    AsyncWebParameter(const String& name, const String& value, bool form=false, bool file=false, size_t size=0): _name(name), _value(value), _size(size), _isForm(form), _isFile(file){}
+    AsyncWebParameter(const String& name, const String& value, bool form=false, bool file=false, size_t size=0)
+      : _name(name), _value(value), _size(size), _isForm(form), _isFile(file){}
+#ifdef __GXX_EXPERIMENTAL_CXX0X__
+    AsyncWebParameter(String&& name, String&& value, bool form=false, bool file=false, size_t size=0)
+    : _name(std::move(name)), _value(std::move(value)), _size(size), _isForm(form), _isFile(file){}
+#endif
     const String& name() const { return _name; }
     const String& value() const { return _value; }
     size_t size() const { return _size; }
@@ -96,6 +117,9 @@ class AsyncWebHeader {
 
   public:
     AsyncWebHeader(const String& name, const String& value): _name(name), _value(value){}
+#ifdef __GXX_EXPERIMENTAL_CXX0X__
+    AsyncWebHeader(String&& name, String&& value): _name(std::move(name)), _value(std::move(value)){}
+#endif
     AsyncWebHeader(const String& data): _name(), _value(){
       if(!data) return;
       int index = data.indexOf(':');
@@ -177,6 +201,8 @@ class AsyncWebServerRequest {
     void _handleUploadEnd();
 
   public:
+    ESPWS_DEBUGDO(String const _remoteIdent);
+
     File _tempFile;
     Dir _tempDir;
     String _tempPath;
@@ -210,8 +236,10 @@ class AsyncWebServerRequest {
     AsyncPrintResponse *beginPrintResponse(int code, const String& contentType);
 
     AsyncWebServerResponse *beginResponse(int code, const String& content=String(), const String& contentType=String());
-    AsyncWebServerResponse *beginResponse(FS &fs, const String& path, const String& contentType=String(), bool download=false);
-    AsyncWebServerResponse *beginResponse(File content, const String& path, const String& contentType=String(), bool download=false);
+    AsyncWebServerResponse *beginResponse(FS &fs, const String& path, const String& contentType=String(),
+                                          bool download=false);
+    AsyncWebServerResponse *beginResponse(File content, const String& path, const String& contentType=String(),
+                                          bool download=false);
     AsyncWebServerResponse *beginResponse(int code, Stream &content, const String& contentType, size_t len);
     AsyncWebServerResponse *beginResponse(int code,  AwsResponseFiller callback, const String& contentType, size_t len);
     AsyncWebServerResponse *beginChunkedResponse(int code,  AwsResponseFiller callback, const String& contentType);
@@ -291,7 +319,8 @@ class AsyncWebRewrite {
       int index = _toUrl.indexOf('?');
       if (index > 0) {
         _params = _toUrl.substring(index +1);
-        _toUrl = _toUrl.substring(0, index);
+        //_toUrl = _toUrl.substring(0, index);
+        _toUrl.remove(index);
       }
     }
     AsyncWebRewrite& setFilter(ArRequestFilterFunction fn) { _filter = fn; return *this; }
@@ -317,8 +346,17 @@ class AsyncWebHandler {
       return false;
     }
     virtual void handleRequest(AsyncWebServerRequest *request __attribute__((unused))){}
-    virtual void handleUpload(AsyncWebServerRequest *request  __attribute__((unused)), const String& filename __attribute__((unused)), size_t index __attribute__((unused)), uint8_t *data __attribute__((unused)), size_t len __attribute__((unused)), bool final  __attribute__((unused))){}
-    virtual void handleBody(AsyncWebServerRequest *request __attribute__((unused)), uint8_t *data __attribute__((unused)), size_t len __attribute__((unused)), size_t index __attribute__((unused)), size_t total __attribute__((unused))){}
+    virtual void handleUpload(AsyncWebServerRequest *request  __attribute__((unused)),
+                              const String& filename __attribute__((unused)),
+                              size_t index __attribute__((unused)),
+                              uint8_t *data __attribute__((unused)),
+                              size_t len __attribute__((unused)),
+                              bool final  __attribute__((unused))){}
+    virtual void handleBody(AsyncWebServerRequest *request __attribute__((unused)),
+                            uint8_t *data __attribute__((unused)),
+                            size_t len __attribute__((unused)),
+                            size_t index __attribute__((unused)),
+                            size_t total __attribute__((unused))){}
 };
 
 /*
@@ -332,8 +370,8 @@ typedef enum {
 class AsyncWebServerResponse {
   protected:
     int _code;
-    LinkedList<AsyncWebHeader *> _headers;
     WebResponseState _state;
+    ESPWS_DEBUGVDO(uint32_t const _ID);
 
     static const char* _responseCodeToString(int code);
 
@@ -342,7 +380,7 @@ class AsyncWebServerResponse {
     virtual ~AsyncWebServerResponse() {}
 
     virtual void setCode(int code);
-    virtual void addHeader(const String& name, const String& value);
+    virtual void addHeader(const String& name, const String& value) = 0;
 
     virtual void _respond(AsyncWebServerRequest *request) = 0;
     virtual size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) = 0;
@@ -353,6 +391,8 @@ class AsyncWebServerResponse {
     inline bool _waitack(void) const { return _state == RESPONSE_WAIT_ACK; }
     inline bool _finished(void) const { return _state > RESPONSE_WAIT_ACK; }
     inline bool _failed(void) const { return _state == RESPONSE_FAILED; }
+
+    ESPWS_DEBUGDO(const char* stateToString(void) const);
 };
 
 /*
@@ -360,8 +400,10 @@ class AsyncWebServerResponse {
  * */
 
 typedef std::function<void(AsyncWebServerRequest *request)> ArRequestHandlerFunction;
-typedef std::function<void(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final)> ArUploadHandlerFunction;
-typedef std::function<void(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)> ArBodyHandlerFunction;
+typedef std::function<void(AsyncWebServerRequest *request, const String& filename, size_t index,
+                           uint8_t *data, size_t len, bool final)> ArUploadHandlerFunction;
+typedef std::function<void(AsyncWebServerRequest *request, uint8_t *data, size_t len,
+                           size_t index, size_t total)> ArBodyHandlerFunction;
 
 #define DEFAULT_CACHE_CTRL "public, no-cache"
 #define DEFAULT_INDEX_FILE "index.htm"
@@ -392,10 +434,13 @@ class AsyncWebServer {
     bool removeHandler(AsyncWebHandler* handler);
 
     AsyncCallbackWebHandler& on(const char* uri, ArRequestHandlerFunction const& onRequest);
-    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest);
-    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
+    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method,
+                                ArRequestHandlerFunction const& onRequest);
+    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method,
+                                ArRequestHandlerFunction const& onRequest,
                                 ArUploadHandlerFunction const& onUpload);
-    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
+    AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method,
+                                ArRequestHandlerFunction const& onRequest,
                                 ArUploadHandlerFunction const& onUpload, ArBodyHandlerFunction const& onBody);
 
     AsyncStaticWebHandler& serveStatic(const char* uri, Dir const& dir,
@@ -419,5 +464,5 @@ class AsyncWebServer {
 
 #include "AsyncWebSocket.h"
 #include "AsyncEventSource.h"
-	
+
 #endif /* _AsyncWebServer_H_ */

@@ -18,7 +18,9 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
+#include "ESPAsyncWebServer.h"
 #include "WebAuthentication.h"
+
 #include <libb64/cencode.h>
 #include "md5.h"
 
@@ -129,14 +131,14 @@ bool checkDigestAuthentication(const char * header, const char * method, const c
                                const char * realm, bool passwordIsHash, const char * nonce, const char * opaque, const char * uri)
 {
   if(username == NULL || password == NULL || header == NULL || method == NULL){
-    //os_printf("AUTH FAIL: missing requred fields\n");
+    ESPWS_DEBUGV("AUTH FAIL: missing requred fields\n");
     return false;
   }
 
   String myHeader = String(header);
   int nextBreak = myHeader.indexOf(",");
   if(nextBreak < 0){
-    //os_printf("AUTH FAIL: no variables\n");
+    ESPWS_DEBUGV("AUTH FAIL: no variables\n");
     return false;
   }
 
@@ -158,7 +160,7 @@ bool checkDigestAuthentication(const char * header, const char * method, const c
 
     int eqSign = avLine.indexOf("=");
     if(eqSign < 0){
-      //os_printf("AUTH FAIL: no = sign\n");
+      ESPWS_DEBUGV("AUTH FAIL: no = sign\n");
       return false;
     }
     String varName = avLine.substring(0, eqSign);
@@ -169,30 +171,30 @@ bool checkDigestAuthentication(const char * header, const char * method, const c
 
     if(varName.equals("username")){
       if(!avLine.equals(username)){
-        //os_printf("AUTH FAIL: username\n");
+        ESPWS_DEBUGV("AUTH FAIL: username\n");
         return false;
       }
       myUsername = avLine;
     } else if(varName.equals("realm")){
       if(realm != NULL && !avLine.equals(realm)){
-        //os_printf("AUTH FAIL: realm\n");
+        ESPWS_DEBUGV("AUTH FAIL: realm\n");
         return false;
       }
       myRealm = avLine;
     } else if(varName.equals("nonce")){
       if(nonce != NULL && !avLine.equals(nonce)){
-        //os_printf("AUTH FAIL: nonce\n");
+        ESPWS_DEBUGV("AUTH FAIL: nonce\n");
         return false;
       }
       myNonce = avLine;
     } else if(varName.equals("opaque")){
       if(opaque != NULL && !avLine.equals(opaque)){
-        //os_printf("AUTH FAIL: opaque\n");
+        ESPWS_DEBUGV("AUTH FAIL: opaque\n");
         return false;
       }
     } else if(varName.equals("uri")){
       if(uri != NULL && !avLine.equals(uri)){
-        //os_printf("AUTH FAIL: uri\n");
+        ESPWS_DEBUGV("AUTH FAIL: uri\n");
         return false;
       }
       myUri = avLine;
@@ -212,10 +214,10 @@ bool checkDigestAuthentication(const char * header, const char * method, const c
   String response = stringMD5(ha1) + ":" + myNonce + ":" + myNc + ":" + myCnonce + ":" + myQop + ":" + stringMD5(ha2);
 
   if(myResponse.equals(stringMD5(response))){
-    //os_printf("AUTH SUCCESS\n");
+    ESPWS_DEBUGV("AUTH SUCCESS\n");
     return true;
   }
 
-  //os_printf("AUTH FAIL: password\n");
+  ESPWS_DEBUGV("AUTH FAIL: password\n");
   return false;
 }

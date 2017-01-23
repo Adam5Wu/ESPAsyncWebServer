@@ -29,7 +29,7 @@ class AsyncStaticWebHandler: public AsyncWebHandler {
   private:
     ArRequestHandlerFunction _requestHandler;
 
-    bool _prepareRequest(String subpath, AsyncWebServerRequest *request);
+    bool _prepareRequest(String&& subpath, AsyncWebServerRequest *request);
     void dirRedirect(AsyncWebServerRequest *request);
   protected:
     Dir _dir;

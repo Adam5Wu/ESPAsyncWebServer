@@ -75,7 +75,7 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
 
   uint8_t *buf = (uint8_t*)malloc(headLen);
   if(buf == NULL){
-    DEBUGV("could not malloc %u bytes for frame header\n", headLen);
+    ESPWS_DEBUGV("could not malloc %u bytes for frame header\n", headLen);
     return 0;
   }
 
@@ -94,7 +94,7 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
     memcpy(buf + (headLen - 4), mbuf, 4);
   }
   if(client->add((const char *)buf, headLen) != headLen){
-    DEBUGV("error adding %lu header bytes\n", headLen);
+    ESPWS_DEBUGV("error adding %lu header bytes\n", headLen);
     free(buf);
     return 0;
   }
@@ -107,12 +107,12 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
         data[i] = data[i] ^ mbuf[i%4];
     }
     if(client->add((const char *)data, len) != len){
-      DEBUGV("error adding %lu data bytes\n", len);
+      ESPWS_DEBUGV("error adding %lu data bytes\n", len);
       return 0;
     }
   }
   if(!client->send()){
-    DEBUGV("error sending frame: %lu\n", headLen+len);
+    ESPWS_DEBUGV("error sending frame: %lu\n", headLen+len);
     return 0;
   }
   return len;
@@ -444,7 +444,7 @@ void AsyncWebSocketClient::_onData(void *buf, size_t plen){
       _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, (uint8_t*)data, plen);
     }
   } else {
-    DEBUGV("frame error: len: %u, index: %llu, total: %llu\n", plen, _pinfo.index, _pinfo.len);
+    ESPWS_DEBUGV("frame error: len: %u, index: %llu, total: %llu\n", plen, _pinfo.index, _pinfo.len);
     // what should we do?
   }
 }
