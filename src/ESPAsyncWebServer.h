@@ -130,7 +130,7 @@ class AsyncWebHeader {
     ~AsyncWebHeader(){}
     const String& name() const { return _name; }
     const String& value() const { return _value; }
-    String toString() const { return String(_name+": "+_value+"\r\n"); }
+    String toString() const { return String(_name+':'+_value+'\r'+'\n'); }
 };
 
 /*
@@ -339,12 +339,12 @@ class AsyncWebHandler {
     ArRequestFilterFunction _filter;
   public:
     AsyncWebHandler(){}
+    virtual ~AsyncWebHandler(){}
+
     AsyncWebHandler& setFilter(ArRequestFilterFunction fn) { _filter = fn; return *this; }
     bool filter(AsyncWebServerRequest *request){ return _filter == NULL || _filter(request); }
-    virtual ~AsyncWebHandler(){}
-    virtual bool canHandle(AsyncWebServerRequest *request __attribute__((unused))){
-      return false;
-    }
+
+    virtual bool canHandle(AsyncWebServerRequest *request __attribute__((unused))) {return false;}
     virtual void handleRequest(AsyncWebServerRequest *request __attribute__((unused))){}
     virtual void handleUpload(AsyncWebServerRequest *request  __attribute__((unused)),
                               const String& filename __attribute__((unused)),

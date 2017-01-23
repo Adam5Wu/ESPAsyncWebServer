@@ -101,9 +101,9 @@ String generateDigestHash(const char * username, const char * password, const ch
   }
   char * out = (char*)malloc(33);
   String res = String(username);
-  res.concat(":");
+  res.concat(':');
   res.concat(realm);
-  res.concat(":");
+  res.concat(':');
   String in = res;
   in.concat(password);
   if(out == NULL || !getMD5((uint8_t*)(in.c_str()), in.length(), out))
@@ -119,11 +119,11 @@ String requestDigestAuthentication(const char * realm){
     header.concat("asyncesp");
   else
     header.concat(realm);
-  header.concat( "\", qop=\"auth\", nonce=\"");
+  header.concat("\", qop=\"auth\", nonce=\"");
   header.concat(genRandomMD5());
   header.concat("\", opaque=\"");
   header.concat(genRandomMD5());
-  header.concat("\"");
+  header.concat('"');
   return header;
 }
 
@@ -136,7 +136,7 @@ bool checkDigestAuthentication(const char * header, const char * method, const c
   }
 
   String myHeader = String(header);
-  int nextBreak = myHeader.indexOf(",");
+  int nextBreak = myHeader.indexOf(',');
   if(nextBreak < 0){
     ESPWS_DEBUGV("AUTH FAIL: no variables\n");
     return false;
@@ -156,16 +156,16 @@ bool checkDigestAuthentication(const char * header, const char * method, const c
     String avLine = myHeader.substring(0, nextBreak);
     avLine.trim();
     myHeader = myHeader.substring(nextBreak+1);
-    nextBreak = myHeader.indexOf(",");
+    nextBreak = myHeader.indexOf(',');
 
-    int eqSign = avLine.indexOf("=");
+    int eqSign = avLine.indexOf('=');
     if(eqSign < 0){
       ESPWS_DEBUGV("AUTH FAIL: no = sign\n");
       return false;
     }
     String varName = avLine.substring(0, eqSign);
     avLine = avLine.substring(eqSign + 1);
-    if(avLine.startsWith("\"")){
+    if(avLine[0] == '"'){
       avLine = avLine.substring(1, avLine.length() - 1);
     }
 
@@ -209,9 +209,9 @@ bool checkDigestAuthentication(const char * header, const char * method, const c
     }
   } while(nextBreak > 0);
 
-  String ha1 = (passwordIsHash) ? String(password) : myUsername + ":" + myRealm + ":" + String(password);
-  String ha2 = String(method) + ":" + myUri;
-  String response = stringMD5(ha1) + ":" + myNonce + ":" + myNc + ":" + myCnonce + ":" + myQop + ":" + stringMD5(ha2);
+  String ha1 = (passwordIsHash) ? String(password) : myUsername + ':' + myRealm + ':' + String(password);
+  String ha2 = String(method) + ':' + myUri;
+  String response = stringMD5(ha1) + ':' + myNonce + ':' + myNc + ':' + myCnonce + ':' + myQop + ':' + stringMD5(ha2);
 
   if(myResponse.equals(stringMD5(response))){
     ESPWS_DEBUGV("AUTH SUCCESS\n");

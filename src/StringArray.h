@@ -29,7 +29,7 @@ class LinkedListNode {
     T _value;
   public:
     LinkedListNode<T>* next;
-    LinkedListNode(const T val): _value(val), next(nullptr) {}
+    LinkedListNode(const T val): _value(val), next(NULL) {}
 
     const T& value() const { return _value; };
     T& value(){ return _value; }
@@ -43,7 +43,7 @@ class LinkedList {
     class Iterator {
         ItemType* _node;
       public:
-        Iterator(ItemType* current = nullptr) : _node(current) {}
+        Iterator(ItemType* current = NULL) : _node(current) {}
         Iterator(const Iterator& i) : _node(i._node) {}
         Iterator& operator ++() { _node = _node->next; return *this; }
         bool operator != (const Iterator& i) const { return _node != i._node; }
@@ -61,7 +61,7 @@ class LinkedList {
     OnRemove _onRemove;
 
   public:
-    LinkedList(OnRemove onRemove) : _root(nullptr), _onRemove(onRemove) {}
+    LinkedList(OnRemove onRemove) : _root(NULL), _onRemove(onRemove) {}
     virtual ~LinkedList() { free(); }
 
     void add(const T& t){
@@ -75,10 +75,10 @@ class LinkedList {
       }
     }
 
-    bool isEmpty() const { return _root == nullptr; }
+    bool isEmpty() const { return _root == NULL; }
     T& front() const { return _root->value(); }
     ConstIterator begin() const { return ConstIterator(_root); }
-    ConstIterator end() const { return ConstIterator(nullptr); }
+    ConstIterator end() const { return ConstIterator(NULL); }
 
     size_t length() const {
       size_t i = 0;
@@ -113,7 +113,7 @@ class LinkedList {
           return &(it->value());
         it = it->next;
       }
-      return nullptr;
+      return NULL;
     }
 
     bool remove(const T& t){
@@ -163,7 +163,7 @@ class LinkedList {
     }
 
     void free(){
-      while(_root != nullptr){
+      while(_root != NULL){
         auto it = _root;
         _root = _root->next;
         if (_onRemove) {
@@ -171,13 +171,13 @@ class LinkedList {
         }
         delete it;
       }
-      _root = nullptr;
+      _root = NULL;
     }
 };
 
 class StringArray : public LinkedList<String> {
   public:
-    StringArray() : LinkedList(nullptr) {}
+    StringArray() : LinkedList(NULL) {}
 
     bool containsIgnoreCase(const String& str){
       for (const auto& s : *this) {

@@ -22,24 +22,27 @@
 #include "AsyncEventSource.h"
 
 static String generateEventMessage(const char *message, const char *event, uint32_t id, uint32_t reconnect){
-  String ev = "";
+  String ev;
 
   if(reconnect){
     ev += "retry: ";
     ev += String(reconnect);
-    ev += "\r\n";
+    ev += '\r';
+    ev += '\n';
   }
 
   if(id){
     ev += "id: ";
     ev += String(id);
-    ev += "\r\n";
+    ev += '\r';
+    ev += '\n';
   }
 
   if(event != NULL){
     ev += "event: ";
     ev += String(event);
-    ev += "\r\n";
+    ev += '\r';
+    ev += '\n';
   }
 
   if(message != NULL){
@@ -92,12 +95,15 @@ static String generateEventMessage(const char *message, const char *event, uint3
           ldata[llen] = 0;
           ev += "data: ";
           ev += ldata;
-          ev += "\r\n";
+          ev += '\r';
+          ev += '\n';
           free(ldata);
         }
         lineStart = nextLine;
-        if(lineStart == ((char *)message + messageLen))
-          ev += "\r\n";
+        if(lineStart == ((char *)message + messageLen)){
+          ev += '\r';
+          ev += '\n';
+        }
       }
     } while(lineStart < ((char *)message + messageLen));
   }
@@ -176,19 +182,6 @@ void AsyncEventSource::onConnect(ArEventHandlerFunction cb){
 }
 
 void AsyncEventSource::_addClient(AsyncEventSourceClient * client){
-  /*char * temp = (char *)malloc(2054);
-  if(temp != NULL){
-    memset(temp+1,' ',2048);
-    temp[0] = ':';
-    temp[2049] = '\r';
-    temp[2050] = '\n';
-    temp[2051] = '\r';
-    temp[2052] = '\n';
-    temp[2053] = 0;
-    client->write((const char *)temp, 2053);
-    free(temp);
-  }*/
-
   _clients.add(client);
   if(_connectcb)
     _connectcb(client);

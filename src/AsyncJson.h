@@ -77,7 +77,7 @@ class AsyncJsonResponse: public AsyncBufferedResponse {
 
     AsyncJsonResponse(JsonVariant &refRoot)
       : AsyncBufferedResponse(200, "text/json")
-      , _buf(nullptr)
+      , _buf(NULL)
       , _root()
       , root(refRoot)
     {}

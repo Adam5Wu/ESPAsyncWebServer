@@ -619,7 +619,7 @@ AsyncWebSocketClient * AsyncWebSocket::client(uint32_t id){
       return c;
     }
   }
-  return nullptr;
+  return NULL;
 }
 
 

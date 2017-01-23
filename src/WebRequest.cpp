@@ -492,8 +492,8 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last){
     }
   } else if(_multiParseState == DASH3_OR_RETURN2){
     if(data == '-' && (_contentLength - _parsedLength - 4) != 0){
-      ESPWS_DEBUG("[%s] ERROR: The parser got to the end of the POST but is expecting %u bytes more!\n"
-                  "Drop an issue so we can have more info on the matter!\n",
+      ESPWS_DEBUG(F("[%s] ERROR: The parser got to the end of the POST but is expecting %u bytes more!\n"
+                  "Drop an issue so we can have more info on the matter!\n"),
                   _remoteIdent.c_str(), _contentLength - _parsedLength - 4);
       _contentLength = _parsedLength + 4;//lets close the request gracefully
     }
@@ -520,6 +520,8 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last){
   }
 }
 
+static const char response[] = "HTTP/1.1 100 Continue\r\n\r\n";
+
 void AsyncWebServerRequest::_parseLine(){
   if(_parseState == PARSE_REQ_START){
     if(_temp.empty()){
@@ -535,10 +537,8 @@ void AsyncWebServerRequest::_parseLine(){
   if(_parseState == PARSE_REQ_HEADERS){
     if(_temp.empty()){
       //end of headers
-      if(_expectingContinue){
-        const char * response = "HTTP/1.1 100 Continue\r\n\r\n";
-        _client->write(response, os_strlen(response));
-      }
+      if(_expectingContinue)
+        _client->write(response, sizeof(response));
       //check handler for authentication
       if(_contentLength){
         _parseState = PARSE_REQ_BODY;
@@ -570,12 +570,12 @@ AsyncWebHeader* AsyncWebServerRequest::getHeader(const String& name) const {
       return h;
     }
   }
-  return nullptr;
+  return NULL;
 }
 
 AsyncWebHeader* AsyncWebServerRequest::getHeader(size_t num) const {
   auto header = _headers.nth(num);
-  return header ? *header : nullptr;
+  return header ? *header : NULL;
 }
 
 size_t AsyncWebServerRequest::params() const {
@@ -597,12 +597,12 @@ AsyncWebParameter* AsyncWebServerRequest::getParam(const String& name, bool post
       return p;
     }
   }
-  return nullptr;
+  return NULL;
 }
 
 AsyncWebParameter* AsyncWebServerRequest::getParam(size_t num) const {
   auto param = _params.nth(num);
-  return param ? *param : nullptr;
+  return param ? *param : NULL;
 }
 
 void AsyncWebServerRequest::addInterestingHeader(const String& name){
@@ -688,12 +688,12 @@ bool AsyncWebServerRequest::authenticate(const char * hash){
 
   if(_isDigest){
     String hStr = String(hash);
-    int separator = hStr.indexOf(":");
+    int separator = hStr.indexOf(':');
     if(separator <= 0)
       return false;
     String username = hStr.substring(0, separator);
     hStr = hStr.substring(separator + 1);
-    separator = hStr.indexOf(":");
+    separator = hStr.indexOf(':');
     if(separator <= 0)
       return false;
     String realm = hStr.substring(0, separator);
@@ -712,7 +712,7 @@ void AsyncWebServerRequest::requestAuthentication(const char * realm, bool isDig
   } else if(!isDigest){
     String header = "Basic realm=\"";
     header.concat(realm);
-    header.concat("\"");
+    header.concat('"');
     r->addHeader("WWW-Authenticate", header);
   } else {
     String header = "Digest ";

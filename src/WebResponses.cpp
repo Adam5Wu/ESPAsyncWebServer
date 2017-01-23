@@ -111,7 +111,7 @@ AsyncSimpleResponse::AsyncSimpleResponse(int code)
   : AsyncWebServerResponse(code)
   //, _status()
   //, _headers()
-  , _sendbuf(nullptr)
+  , _sendbuf(NULL)
   , _bufLen(0)
   , _bufSent(0)
   , _bufPrepared(0)
@@ -540,15 +540,22 @@ void AsyncChunkedResponse::assembleHead(uint8_t version){
   AsyncBasicResponse::assembleHead(version);
 }
 
+static const uint8_t HexLookup[] =
+{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
 size_t AsyncChunkedResponse::fillBuffer(uint8_t *buf, size_t maxLen){
   if (maxLen <= 32) return 0; // Buffer too small to worth the effort
   if (maxLen > 0x2000+8) maxLen = 0x2000+8;
 
   size_t chunkLen = _callback(buf+6, maxLen-8, _bufPrepared-(8*_chunkCnt));
   // Encapsulate chunk
-  sprintf((char*)buf, "%04x\r\n", chunkLen);
-  buf[6+chunkLen] = 0x0D;
-  buf[6+chunkLen+1] = 0x0A;
+  buf[0] = HexLookup[(chunkLen >> 12) & 0xF];
+  buf[1] = HexLookup[(chunkLen >> 8) & 0xF];
+  buf[2] = HexLookup[(chunkLen >> 4) & 0xF];
+  buf[3] = HexLookup[(chunkLen >> 0) & 0xF];
+  buf[4] = '\r';
+  buf[5] = '\n';
+  buf[6+chunkLen] = '\r';
+  buf[6+chunkLen+1] = '\n';
   // Check for termination signal
   if (!chunkLen) {
     _contentLength = 0; // Stops fillBuffer from being called again

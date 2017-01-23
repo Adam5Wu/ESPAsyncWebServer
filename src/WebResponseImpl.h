@@ -129,7 +129,7 @@ class AsyncFileResponse: public AsyncBufferedResponse {
 
   public:
     AsyncFileResponse(FS &fs, const String& path, const String& contentType=String(), bool download=false)
-      : AsyncFileResponse(fs.open(path,"r"), path, contentType, download) {}
+      : AsyncFileResponse(fs.open(path, "r"), path, contentType, download) {}
 
     AsyncFileResponse(File const& content, const String& path, const String& contentType=String(), bool download=false);
 };
