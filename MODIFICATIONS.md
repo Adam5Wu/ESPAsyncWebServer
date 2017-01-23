@@ -19,14 +19,21 @@
 - The new implementation features:
 	- A more robust data serving logic, does not silently lose data under memory contention
 	- A slightly improved class abstraction, which conserves a bit of memory when serving simply responses (such as status code only response)
+	- In-place response header generation without string formatting, conserve heap usage and processor cycles
 
-- In addition, proactive memory congestion detection and throttling is implemented, which can avoid random crashes due to heap overflow at high workloads
+- Improved debug and regular logging:
+	- Two level debug logging, all message contains remote identifiers (IP:port) to help diagnosis
+	- Regularly logs each request's IP:port, method, host, url and response code
+
+- Proactive memory congestion detection and throttling is implemented, which can avoid random crashes due to heap overflow at high workloads
 
 ## Request Parsing
 
 - A small modification is done on `AsyncWebServerRequest::_onData()` method, converting the code logic from recursive to iterative.
 
 	While I debug some crash dumps during development, I often observe an amazingly long (10+ hops) chain of `_onData()` calls on the stack trace. This modification should reduce the stack usage and eliminate those long chains.
+
+- Parser efficicy improvements, avoiding redundant string copying by utilizing string move constructions and in-place truncations.
 
 ## API changes
 
