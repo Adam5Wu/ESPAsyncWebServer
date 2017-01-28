@@ -176,7 +176,7 @@ void AsyncWebServerRequest::_onPoll(){
 }
 
 void AsyncWebServerRequest::_onAck(size_t len, uint32_t time){
-  ESPWS_DEBUGV("[%s] ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
+  ESPWS_DEBUGVV("[%s] ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
   if(_response != NULL){
     if(!_response->_finished()){
       _response->_ack(this, len, time);
@@ -222,16 +222,16 @@ void AsyncWebServerRequest::_addGetParams(const String& params){
 
 bool AsyncWebServerRequest::_parseReqHead(){
   DEBUGV("[AsyncWebServerRequest::_parseReqHead]\n");
-	
+
   // Split the head into method, url and version
   int indexUrl = _temp.indexOf(' ');
   if (indexUrl <= 0) return false;
   _temp[indexUrl] = '\0';
-  
+
   int indexVer = _temp.indexOf(' ', indexUrl+1);
   if (indexVer <= 0) return false;
   _temp[indexVer] = '\0';
-  
+
   DEBUGV("[AsyncWebServerRequest::_parseReqHead] %s %s %s\n", &_temp[0], &_temp[indexUrl+1], &_temp[indexVer+1]);
 
   if (memcmp(_temp.begin(), "GET", 4) == 0) {
@@ -512,7 +512,7 @@ static const char response[] = "HTTP/1.1 100 Continue\r\n\r\n";
 
 void AsyncWebServerRequest::_parseLine(){
   DEBUGV("[AsyncWebServerRequest::_parseLine]\n");
-	
+
   if(_parseState == PARSE_REQ_START){
     if(!_temp.empty() && _parseReqHead()) {
       _parseState = PARSE_REQ_HEADERS;
@@ -603,6 +603,7 @@ void AsyncWebServerRequest::send(AsyncWebServerResponse *response){
     _onDisconnect();
     return;
   }
+  _client->setRxTimeout(0);
   _response->_respond(this);
 }
 

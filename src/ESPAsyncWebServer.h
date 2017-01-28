@@ -56,6 +56,14 @@
   #define ESPWS_DEBUGV(...) Serial.printf(__VA_ARGS__)
 #endif
 
+#if ESPWS_DEBUG_LEVEL < 3
+  #define ESPWS_DEBUGVVDO(...)
+  #define ESPWS_DEBUGVV(...)
+#else
+  #define ESPWS_DEBUGVVDO(...) __VA_ARGS__
+  #define ESPWS_DEBUGVV(...) Serial.printf(__VA_ARGS__)
+#endif
+
 #define DEFAULT_REALM "ESP8266"
 #define DEFAULT_CACHE_CTRL "public, no-cache"
 #define DEFAULT_INDEX_FILE "index.htm"

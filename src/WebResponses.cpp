@@ -119,9 +119,6 @@ AsyncSimpleResponse::AsyncSimpleResponse(int code)
 {}
 
 void AsyncSimpleResponse::_respond(AsyncWebServerRequest *request) {
-  ESPWS_DEBUGV("[AsyncSimpleResponse::_respond] <%d> %s:%d\n%s",
-               _ID, request->client()->remoteIP().toString().c_str(), request->client()->remotePort());
-
   ESPWS_LOG("[%s:%d] %d %s %s %s\n",
             request->client()->remoteIP().toString().c_str(), request->client()->remotePort(),
             _code, request->methodToString(), request->host().c_str(), request->url().c_str());
@@ -134,7 +131,7 @@ void AsyncSimpleResponse::assembleHead(uint8_t version) {
   if (version)
     addHeader("Connection", "close");
 
-  ESPWS_DEBUGV("[AsyncSimpleResponse::assembleHead] <%d>\n%s", _ID, _headers.c_str());
+  ESPWS_DEBUGVV("[AsyncSimpleResponse::assembleHead] <%d>\n%s", _ID, _headers.c_str());
 
   _status.concat("HTTP/1.");
   _status.concat(version);
@@ -167,7 +164,7 @@ size_t AsyncSimpleResponse::_ack(AsyncWebServerRequest *request, size_t len, uin
   while (_sending() && (ESP.getFreeHeap() > MIN_FREE_HEAP) && prepareSendBuf(request)) {
     size_t sendLen = request->client()->write((const char*)&_sendbuf[_bufSent], _bufLen);
     if (sendLen) {
-      ESPWS_DEBUGV("[AsyncSimpleResponse::_ack] <%d> Sent out %d of %d\n", _ID, sendLen,_bufLen);
+      ESPWS_DEBUGVV("[AsyncSimpleResponse::_ack] <%d> Sent out %d of %d\n", _ID, sendLen,_bufLen);
       written += sendLen;
       _bufSent += sendLen;
       if (!(_bufLen-= sendLen))
@@ -192,19 +189,19 @@ bool AsyncSimpleResponse::prepareSendBuf(AsyncWebServerRequest *request) {
     size_t space = request->client()->space();
     if (space < TCP_MSS/4) {
       // Send buffer too small, wait for it to grow bigger
-      ESPWS_DEBUGV("[AsyncSimpleResponse::prepareSendBuf] <%d> Wait for more send buffer\n", _ID);
+      ESPWS_DEBUGVV("[AsyncSimpleResponse::prepareSendBuf] <%d> Wait for more send buffer\n", _ID);
       break;
     }
     _bufSent = 0;
 
     if (_state == RESPONSE_HEADERS) {
-      ESPWS_DEBUGV("[AsyncSimpleResponse::prepareSendBuf] <%d> Preparing head @%d\n", _ID, _bufPrepared);
+      ESPWS_DEBUGVV("[AsyncSimpleResponse::prepareSendBuf] <%d> Preparing head @%d\n", _ID, _bufPrepared);
       if (prepareHeadSendBuf(space))
         break;
     }
 
     if (_state == RESPONSE_CONTENT) {
-      ESPWS_DEBUGV("[AsyncSimpleResponse::prepareSendBuf] <%d> Preparing content @%d\n", _ID, _bufPrepared);
+      ESPWS_DEBUGVV("[AsyncSimpleResponse::prepareSendBuf] <%d> Preparing content @%d\n", _ID, _bufPrepared);
       prepareContentSendBuf(space);
     }
 
@@ -244,7 +241,7 @@ bool AsyncSimpleResponse::prepareContentSendBuf(size_t space) {
 }
 
 bool AsyncSimpleResponse::prepareAllocatedSendBuf(uint8_t const *buf, size_t limit, size_t space) {
-  ESPWS_DEBUGV("[AsyncSimpleResponse::prepareAllocatedSendBuf] <%d> Preparing static buffer of %d up to %d\n", _ID, limit, space);
+  ESPWS_DEBUGVV("[AsyncSimpleResponse::prepareAllocatedSendBuf] <%d> Preparing static buffer of %d up to %d\n", _ID, limit, space);
   _sendbuf = (uint8_t*)&buf[_bufPrepared];
   size_t bufToSend = limit - _bufPrepared;
   if (space >= bufToSend) {
@@ -407,7 +404,7 @@ AsyncFileResponse::AsyncFileResponse(File const& content, const String& path, co
       else if (extension == "gz") _contentType = "application/x-gzip";
       else _contentType = "application/octet-stream";
 
-      ESPWS_DEBUGV("[AsyncFileResponse::_prepareServing] <%d> Extension '%s', MIME '%s'\n",
+      ESPWS_DEBUGVV("[AsyncFileResponse::_prepareServing] <%d> Extension '%s', MIME '%s'\n",
                    _ID, extension.c_str(), _contentType.c_str());
     }
 
@@ -445,7 +442,7 @@ void AsyncFileResponse::assembleHead(uint8_t version) {
 
 size_t AsyncFileResponse::fillBuffer(uint8_t *buf, size_t maxLen) {
   size_t outLen = _content.read(buf, maxLen);
-  ESPWS_DEBUGV("[AsyncFileResponse::fillBuffer] <%d> File read up to %d, got %d\n", _ID, maxLen, outLen);
+  ESPWS_DEBUGVV("[AsyncFileResponse::fillBuffer] <%d> File read up to %d, got %d\n", _ID, maxLen, outLen);
   // Unsized content stop condition
   if (_contentLength == -1 && !outLen) {
     _contentLength = 0; // Stops fillBuffer from being called again

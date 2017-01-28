@@ -38,7 +38,6 @@ AsyncWebServer::AsyncWebServer(uint16_t port)
   _catchAllHandler = new AsyncCallbackWebHandler();
   if(_catchAllHandler == NULL) return;
   _server.onClient([](void *s, AsyncClient* c){
-		DEBUGV("[AsyncWebServer::onClient]\n");
     if(c == NULL) return;
     c->setRxTimeout(3);
     AsyncWebServerRequest *r = new AsyncWebServerRequest((AsyncWebServer*)s, c);
