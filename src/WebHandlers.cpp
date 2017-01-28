@@ -30,7 +30,7 @@ bool AsyncPathURIWebHandler::canHandle(AsyncWebServerRequest *request) {
 
   if (request->url().startsWith(_uri)) {
     ESPWS_DEBUGVV("[AsyncPathURIWebHandler::canHandle] Match: '%s'\n", request->url().c_str());
-		_requestHandler = NULL;
+    _requestHandler = NULL;
     return true;
   }
 
