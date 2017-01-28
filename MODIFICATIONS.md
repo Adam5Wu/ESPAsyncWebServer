@@ -22,7 +22,7 @@
 	- In-place response header generation without string formatting, conserve heap usage and processor cycles
 
 - Improved debug and regular logging:
-	- Two level debug logging, all message contains remote identifiers (IP:port) to help diagnosis
+	- Three levels of debug logging, all response log messages contain request identifier to help diagnosis
 	- Regularly logs each request's IP:port, method, host, url and response code
 
 - Proactive memory congestion detection and throttling is implemented, which can avoid random crashes due to heap overflow at high workloads

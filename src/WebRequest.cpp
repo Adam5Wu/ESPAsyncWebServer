@@ -182,7 +182,7 @@ void AsyncWebServerRequest::_onPoll(){
 }
 
 void AsyncWebServerRequest::_onAck(size_t len, uint32_t time){
-  ESPWS_DEBUGV("[%s] ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
+  ESPWS_DEBUGVV("[%s] ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
   if(_response != NULL){
     if(!_response->_finished()){
       _response->_ack(this, len, time);
@@ -492,8 +492,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last){
     }
   } else if(_multiParseState == DASH3_OR_RETURN2){
     if(data == '-' && (_contentLength - _parsedLength - 4) != 0){
-      ESPWS_DEBUG(F("[%s] ERROR: The parser got to the end of the POST but is expecting %u bytes more!\n"
-                  "Drop an issue so we can have more info on the matter!\n"),
+      ESPWS_DEBUG("[%s] ERROR: The parser got to the end of the POST but is expecting %u bytes more!\n",
                   _remoteIdent.c_str(), _contentLength - _parsedLength - 4);
       _contentLength = _parsedLength + 4;//lets close the request gracefully
     }
@@ -617,6 +616,7 @@ void AsyncWebServerRequest::send(AsyncWebServerResponse *response){
     _onDisconnect();
     return;
   }
+  _client->setRxTimeout(0);
   _response->_respond(this);
 }
 

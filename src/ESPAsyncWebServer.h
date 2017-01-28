@@ -38,7 +38,7 @@
 #endif
 
 #define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
-#define ESPWS_DEBUG_LEVEL 0
+#define ESPWS_DEBUG_LEVEL 2
 
 #if ESPWS_DEBUG_LEVEL < 1
   #define ESPWS_DEBUGDO(...)
@@ -54,6 +54,14 @@
 #else
   #define ESPWS_DEBUGVDO(...) __VA_ARGS__
   #define ESPWS_DEBUGV(...) Serial.printf(__VA_ARGS__)
+#endif
+
+#if ESPWS_DEBUG_LEVEL < 3
+  #define ESPWS_DEBUGVVDO(...)
+  #define ESPWS_DEBUGVV(...)
+#else
+  #define ESPWS_DEBUGVVDO(...) __VA_ARGS__
+  #define ESPWS_DEBUGVV(...) Serial.printf(__VA_ARGS__)
 #endif
 
 class AsyncWebServer;

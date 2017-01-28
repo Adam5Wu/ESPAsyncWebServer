@@ -29,14 +29,14 @@ bool AsyncPathURIWebHandler::canHandle(AsyncWebServerRequest *request) {
   if (!(_method & request->method())) return false;
 
   if (request->url().startsWith(_uri)) {
-    ESPWS_DEBUGV("[AsyncPathURIWebHandler::canHandle] Match: '%s'\n", request->url().c_str());
-		_requestHandler = NULL;
+    ESPWS_DEBUGVV("[AsyncPathURIWebHandler::canHandle] Match: '%s'\n", request->url().c_str());
+    _requestHandler = NULL;
     return true;
   }
 
   if (_uri.startsWith(request->url()) && request->url().length()+1 == _uri.length()) {
     // Matched directory without final slash
-    ESPWS_DEBUGV("[AsyncPathURIWebHandler::canHandle] Redir: '%s'\n", request->url().c_str());
+    ESPWS_DEBUGVV("[AsyncPathURIWebHandler::canHandle] Redir: '%s'\n", request->url().c_str());
     _requestHandler = std::bind(&AsyncPathURIWebHandler::dirRedirect, this, std::placeholders::_1);
     return true;
   }
@@ -108,12 +108,12 @@ bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequ
   bool ServeDir = false;
 
   if (subpath.empty()) {
-    ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] RootDir\n");
+    ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] RootDir\n");
     ServeDir = true;
     // Requesting root dir
     request->_tempDir = _dir;
   } else if (subpath.end()[-1] == '/') {
-    ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] SubDir: '%s'\n", subpath.c_str());
+    ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] SubDir: '%s'\n", subpath.c_str());
     ServeDir = true;
     // Requesting sub dir
     request->_tempDir = _dir.openDir(subpath.c_str());
@@ -122,13 +122,13 @@ bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequ
       return false;
     }
   } else {
-    ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] Path: '%s'\n", subpath.c_str());
+    ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] Path: '%s'\n", subpath.c_str());
   }
 
   if (ServeDir) {
     // We have a request on a valid dir
     if (_onIndex) {
-      ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] Dir onIndex\n");
+      ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] Dir onIndex\n");
       _requestHandler = _onIndex;
       return true;
     } else {
@@ -145,11 +145,11 @@ bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequ
   // Handle file request path
   String gzPath;
   if (!subpath.empty()) {
-    ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] File lookup: '%s'\n",subpath.c_str());
+    ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] File lookup: '%s'\n",subpath.c_str());
     if (_gzLookup) {
       if (_gzFirst) {
         gzPath = subpath + ".gz";
-        //ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] GZFirst: '%s'\n",gzPath.c_str());
+        ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] GZFirst: '%s'\n",gzPath.c_str());
         request->_tempFile = _dir.openFile(gzPath.c_str(), "r");
         if (!request->_tempFile) {
           gzPath.clear();
@@ -159,7 +159,7 @@ bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequ
         request->_tempFile = _dir.openFile(subpath.c_str(), "r");
         if (!request->_tempFile) {
           gzPath = subpath + ".gz";
-          //ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] !GZFirst: '%s'\n",gzPath.c_str());
+          ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] !GZFirst: '%s'\n",gzPath.c_str());
           request->_tempFile = _dir.openFile(gzPath.c_str(), "r");
         }
       }
@@ -173,7 +173,7 @@ bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequ
         // It is a dir that need a gentle push
         _requestHandler = std::bind(&AsyncPathURIWebHandler::dirRedirect, this, std::placeholders::_1);
       } else {
-        ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] File not found\n");
+        ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] File not found\n");
         // It is not a file, nor dir
         _requestHandler = _onPathNotFound;
       }
@@ -184,13 +184,13 @@ bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequ
   if (request->_tempFile) {
     // We can serve a data file
     if (!gzPath.empty()) {
-      ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] GZ file '%s'\n",gzPath.c_str());
+      ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] GZ file '%s'\n",gzPath.c_str());
       request->_tempPath = std::move(subpath);
     }
     _requestHandler = std::bind(&AsyncStaticWebHandler::sendDataFile, this, std::placeholders::_1);
     return true;
   } else {
-    ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] Dir index not found\n");
+    ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] Dir index not found\n");
     // Dir index file not found
     _requestHandler = _onIndexNotFound;
     return false;
@@ -198,7 +198,7 @@ bool AsyncStaticWebHandler::_prepareRequest(String&& subpath, AsyncWebServerRequ
 }
 
 void AsyncStaticWebHandler::sendDirList(AsyncWebServerRequest *request) {
-  ESPWS_DEBUGV("[AsyncStaticWebHandler::sendDirList] Forbid dir listing\n");
+  ESPWS_DEBUGVV("[AsyncStaticWebHandler::sendDirList] Forbid dir listing\n");
   request->send(403); // Dir listing is forbidden
 }
 
@@ -214,7 +214,7 @@ void AsyncStaticWebHandler::sendDataFile(AsyncWebServerRequest *request) {
     request->_tempFile.close();
     request->send(304); // Not modified
   } else {
-    ESPWS_DEBUGV("[AsyncStaticWebHandler::_prepareRequest] Serving '%s'\n",request->_tempFile.name());
+    ESPWS_DEBUGVV("[AsyncStaticWebHandler::_prepareRequest] Serving '%s'\n",request->_tempFile.name());
     const char* filepath = request->_tempPath.empty()? request->_tempFile.name() : request->_tempPath.c_str();
     AsyncWebServerResponse * response = new AsyncFileResponse(request->_tempFile, filepath);
     if (!_cache_control.empty()){
