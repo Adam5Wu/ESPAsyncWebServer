@@ -36,18 +36,12 @@ AsyncWebServer::AsyncWebServer(uint16_t port)
   , _handlers(LinkedList<AsyncWebHandler*>([](AsyncWebHandler* h){ delete h; }))
 {
   _catchAllHandler = new AsyncCallbackWebHandler();
-  if(_catchAllHandler == NULL)
-    return;
+  if(_catchAllHandler == NULL) return;
   _server.onClient([](void *s, AsyncClient* c){
-    if(c == NULL)
-      return;
+    if(c == NULL) return;
     c->setRxTimeout(3);
     AsyncWebServerRequest *r = new AsyncWebServerRequest((AsyncWebServer*)s, c);
-    if(r == NULL){
-      c->close(true);
-      c->free();
-      delete c;
-    }
+    if(r == NULL) delete c;
   }, this);
 }
 
