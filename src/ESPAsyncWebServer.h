@@ -38,7 +38,7 @@
 #endif
 
 #define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
-#define ESPWS_DEBUG_LEVEL 0
+#define ESPWS_DEBUG_LEVEL 2
 
 #if ESPWS_DEBUG_LEVEL < 1
   #define ESPWS_DEBUGDO(...)
@@ -55,6 +55,10 @@
   #define ESPWS_DEBUGVDO(...) __VA_ARGS__
   #define ESPWS_DEBUGV(...) Serial.printf(__VA_ARGS__)
 #endif
+
+#define DEFAULT_REALM "ESP8266"
+#define DEFAULT_CACHE_CTRL "public, no-cache"
+#define DEFAULT_INDEX_FILE "index.htm"
 
 class AsyncWebServer;
 class AsyncWebServerRequest;
@@ -92,7 +96,6 @@ class AsyncWebParameter {
     bool _isFile;
 
   public:
-
     AsyncWebParameter(const String& name, const String& value, bool form=false, bool file=false, size_t size=0)
       : _name(name), _value(value), _size(size), _isForm(form), _isFile(file){}
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
@@ -218,15 +221,16 @@ class AsyncWebServerRequest {
     const String& contentType() const { return _contentType; }
     size_t contentLength() const { return _contentLength; }
     bool multipart() const { return _isMultipart; }
-    const char * methodToString() const;
 
+    const char * methodToString() const;
 
     //hash is the string representation of:
     // base64(user:pass) for basic or
     // user:realm:md5(user:realm:pass) for digest
     bool authenticate(const char * hash);
-    bool authenticate(const char * username, const char * password, const char * realm = NULL, bool passwordIsHash = false);
-    void requestAuthentication(const char * realm = NULL, bool isDigest = true);
+
+    bool authenticate(const char * username, const char * password, const char * realm = DEFAULT_REALM, bool passwordIsHash = false);
+    void requestAuthentication(const char * realm = DEFAULT_REALM, bool isDigest = true);
 
     void setHandler(AsyncWebHandler *handler){ _handler = handler; }
     void addInterestingHeader(const String& name);
@@ -319,7 +323,6 @@ class AsyncWebRewrite {
       int index = _toUrl.indexOf('?');
       if (index > 0) {
         _params = _toUrl.substring(index +1);
-        //_toUrl = _toUrl.substring(0, index);
         _toUrl.remove(index);
       }
     }
@@ -404,9 +407,6 @@ typedef std::function<void(AsyncWebServerRequest *request, const String& filenam
                            uint8_t *data, size_t len, bool final)> ArUploadHandlerFunction;
 typedef std::function<void(AsyncWebServerRequest *request, uint8_t *data, size_t len,
                            size_t index, size_t total)> ArBodyHandlerFunction;
-
-#define DEFAULT_CACHE_CTRL "public, no-cache"
-#define DEFAULT_INDEX_FILE "index.htm"
 
 class AsyncWebServer {
   protected:
