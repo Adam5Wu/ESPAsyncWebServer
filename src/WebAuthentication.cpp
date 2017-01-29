@@ -34,16 +34,18 @@ bool checkBasicAuthentication(const char * hash, const char * username, const ch
   toEncode.concat(':');
   toEncode.concat(password);
 
-  int16_t expectLen = base64_encode_expected_len(toEncode.length());
+  size_t expectLen = base64_encode_expected_len(toEncode.length());
   if (expectLen != strlen(hash))
     return false;
 
-  String Encoded(' ', expectLen);
+  String Encoded;
+  Encoded.concat(' ', expectLen);
   base64_encode_chars(toEncode.begin(), toEncode.length(), Encoded.begin());
   return memcmp(hash, Encoded.begin(), expectLen) == 0;
 }
 
-void getMD5(uint8_t * data, uint16_t len, char * output){//33 bytes or more
+static void getMD5(uint8_t * data, uint16_t len, char * output) {
+  // Output must be 33 bytes or larger
   md5_context_t _ctx;
   MD5Init(&_ctx);
 
@@ -52,8 +54,12 @@ void getMD5(uint8_t * data, uint16_t len, char * output){//33 bytes or more
   uint8_t _buf[16];
   MD5Final(_buf, &_ctx);
 
-  for(uint8_t i = 0; i < 16; i++)
-    sprintf(output + (i * 2), "%02x", _buf[i]);
+  for(uint8_t i = 0; i < 16; i++) {
+    if (_buf[i] < 0x10) {
+      output[i*2] = '0';
+      itoa(_buf[i], &output[i*2+1], 16);
+    } else itoa(_buf[i], &output[i*2], 16);
+  }
 }
 
 static String genRandomMD5(){
@@ -62,14 +68,14 @@ static String genRandomMD5(){
 #else
   uint32_t r = rand();
 #endif
-  String res(' ', 32);
-  getMD5((uint8_t*)(&r), 4, res.begin());
+  char res[33];
+  getMD5((uint8_t*)(&r), 4, res);
   return res;
 }
 
 static String stringMD5(const String& in){
-  String res(' ', 32);
-  getMD5((uint8_t*)in.begin(), in.length(), res.begin());
+  char res[33];
+  getMD5((uint8_t*)in.begin(), in.length(), res);
   return res;
 }
 

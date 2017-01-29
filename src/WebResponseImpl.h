@@ -48,7 +48,7 @@ class AsyncSimpleResponse: public AsyncWebServerResponse {
 
     virtual void requestCleanup(AsyncWebServerRequest *request) { request->client()->close(true); }
 
-    bool prepareAllocatedSendBuf(uint8_t const *buf, size_t limit, size_t space);
+    void prepareAllocatedSendBuf(uint8_t const *buf, size_t limit, size_t space);
 
   public:
     AsyncSimpleResponse(int code);

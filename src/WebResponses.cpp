@@ -94,6 +94,7 @@ void AsyncWebServerResponse::setCode(int code) {
 ESPWS_DEBUGDO(const char* AsyncWebServerResponse::stateToString(void) const {
   switch (_state) {
     case RESPONSE_SETUP: return "Setup";
+    case RESPONSE_STATUS: return "Status";
     case RESPONSE_HEADERS: return "Headers";
     case RESPONSE_CONTENT: return "Content";
     case RESPONSE_WAIT_ACK: return "Wait-Ack";
@@ -124,6 +125,11 @@ void AsyncSimpleResponse::_respond(AsyncWebServerRequest *request) {
             _code, request->methodToString(), request->host().c_str(), request->url().c_str());
 
   assembleHead(request->version());
+
+  _state = RESPONSE_STATUS;
+  // Assume status line is ALWAYS shorter than sendbuf
+  _sendbuf = (uint8_t*)_status.begin();
+  _bufLen = _status.length();
   _ack(request, 0, 0);
 }
 
@@ -131,7 +137,7 @@ void AsyncSimpleResponse::assembleHead(uint8_t version) {
   if (version)
     addHeader("Connection", "close");
 
-  ESPWS_DEBUGVV("[AsyncSimpleResponse::assembleHead] <%d>\n%s", _ID, _headers.c_str());
+  ESPWS_DEBUGVV("<%d>--- Headers Start ---\n%s<%d>--- Headers End ---\n", _ID, _headers.c_str());
 
   _status.concat("HTTP/1.");
   _status.concat(version);
@@ -144,8 +150,6 @@ void AsyncSimpleResponse::assembleHead(uint8_t version) {
 
   _headers.concat('\r');
   _headers.concat('\n');
-
-  _state = RESPONSE_HEADERS;
 }
 
 void AsyncSimpleResponse::addHeader(const String& name, const String& value) {
@@ -153,6 +157,7 @@ void AsyncSimpleResponse::addHeader(const String& name, const String& value) {
 
   _headers.concat(name);
   _headers.concat(':');
+  _headers.concat(' ');
   _headers.concat(value);
   _headers.concat('\r');
   _headers.concat('\n');
@@ -164,7 +169,7 @@ size_t AsyncSimpleResponse::_ack(AsyncWebServerRequest *request, size_t len, uin
   while (_sending() && (ESP.getFreeHeap() > MIN_FREE_HEAP) && prepareSendBuf(request)) {
     size_t sendLen = request->client()->write((const char*)&_sendbuf[_bufSent], _bufLen);
     if (sendLen) {
-      ESPWS_DEBUGVV("[AsyncSimpleResponse::_ack] <%d> Sent out %d of %d\n", _ID, sendLen,_bufLen);
+      ESPWS_DEBUGVV("<%d> Sent out %d of %d\n", _ID, sendLen,_bufLen);
       written += sendLen;
       _bufSent += sendLen;
       if (!(_bufLen-= sendLen))
@@ -174,11 +179,11 @@ size_t AsyncSimpleResponse::_ack(AsyncWebServerRequest *request, size_t len, uin
   _inFlightLength += written;
   if (_waitack() && !_inFlightLength) {
     // All data acked, now we are done!
-    ESPWS_DEBUGV("[AsyncSimpleResponse::_ack] <%d> All data acked\n", _ID);
+    ESPWS_DEBUGV("<%d> All data acked\n", _ID);
     _state = RESPONSE_END;
   }
   if (_finished()) {
-    ESPWS_DEBUGV("[AsyncSimpleResponse::_ack] <%d> Finalizing connection\n", _ID);
+    ESPWS_DEBUGV("<%d> Finalizing connection\n", _ID);
     requestCleanup(request);
   }
   return written;
@@ -189,19 +194,24 @@ bool AsyncSimpleResponse::prepareSendBuf(AsyncWebServerRequest *request) {
     size_t space = request->client()->space();
     if (space < TCP_MSS/4) {
       // Send buffer too small, wait for it to grow bigger
-      ESPWS_DEBUGVV("[AsyncSimpleResponse::prepareSendBuf] <%d> Wait for more send buffer\n", _ID);
+      ESPWS_DEBUGVV("<%d> Wait for more send buffer\n", _ID);
       break;
     }
     _bufSent = 0;
 
+    if (_state == RESPONSE_STATUS) {
+      _status.clear(true);
+      _state = RESPONSE_HEADERS;
+    }
+
     if (_state == RESPONSE_HEADERS) {
-      ESPWS_DEBUGVV("[AsyncSimpleResponse::prepareSendBuf] <%d> Preparing head @%d\n", _ID, _bufPrepared);
+      ESPWS_DEBUGVV("<%d> Preparing head @%d\n", _ID, _bufPrepared);
       if (prepareHeadSendBuf(space))
         break;
     }
 
     if (_state == RESPONSE_CONTENT) {
-      ESPWS_DEBUGVV("[AsyncSimpleResponse::prepareSendBuf] <%d> Preparing content @%d\n", _ID, _bufPrepared);
+      ESPWS_DEBUGVV("<%d> Preparing content @%d\n", _ID, _bufPrepared);
       prepareContentSendBuf(space);
     }
 
@@ -211,45 +221,30 @@ bool AsyncSimpleResponse::prepareSendBuf(AsyncWebServerRequest *request) {
 }
 
 bool AsyncSimpleResponse::prepareHeadSendBuf(size_t space) {
-  if (!_status.empty()) {
-    // Assume status line is ALWAYS shorter than space
-    _sendbuf = (uint8_t*)_status.begin();
-    _bufLen = _status.length();
-    _status.clear();
-  } else {
-    if (_headers.empty()) {
-      _status.clear(true);
-      _headers.clear(true);
-      _state = RESPONSE_CONTENT;
-      _bufPrepared = 0;
-      return false;
-    }
-
-    if (prepareAllocatedSendBuf((uint8_t*)_headers.begin(), _headers.length(), space)) {
-      ESPWS_DEBUGV("[AsyncSimpleResponse::prepareHeadSendBuf] <%d> Head all prepared @%d\n", _ID, _bufPrepared+_bufLen);
-      _headers.clear();
-    }
+  if (_bufPrepared >= _headers.length()) {
+    _headers.clear(true);
+    _state = RESPONSE_CONTENT;
+    _bufPrepared = 0;
+    return false;
   }
+
+  prepareAllocatedSendBuf((uint8_t*)_headers.begin(), _headers.length(), space);
   return true;
 }
 
 bool AsyncSimpleResponse::prepareContentSendBuf(size_t space) {
   // Implement null content
-  ESPWS_DEBUGV("[AsyncSimpleResponse::prepareContentSendBuf] <%d> Content all prepared @%d\n", _ID, _bufPrepared+_bufLen);
+  ESPWS_DEBUGV("<%d> Content all prepared @%d\n", _ID, _bufPrepared+_bufLen);
   _state = RESPONSE_WAIT_ACK;
   return false;
 }
 
-bool AsyncSimpleResponse::prepareAllocatedSendBuf(uint8_t const *buf, size_t limit, size_t space) {
-  ESPWS_DEBUGVV("[AsyncSimpleResponse::prepareAllocatedSendBuf] <%d> Preparing static buffer of %d up to %d\n", _ID, limit, space);
+void AsyncSimpleResponse::prepareAllocatedSendBuf(uint8_t const *buf, size_t limit, size_t space) {
+  ESPWS_DEBUGVV("<%d> Preparing static buffer of %d up to %d\n", _ID, limit, space);
   _sendbuf = (uint8_t*)&buf[_bufPrepared];
   size_t bufToSend = limit - _bufPrepared;
-  if (space >= bufToSend) {
-    _bufLen = bufToSend;
-    return true;
-  } else _bufLen = space;
+  _bufLen = space >= bufToSend? bufToSend: space;
   _bufPrepared+= _bufLen;
-  return false;
 }
 
 /*
@@ -311,8 +306,7 @@ void AsyncStringRefResponse::assembleHead(uint8_t version) {
   if (_contentLength == -1) {
     _contentLength = _content.length();
   } else if (_contentLength > _content.length()) {
-    ESPWS_DEBUGV("[AsyncStringResponse::assembleHead] <%d> Corrected content length overshoot %d -> %d\n",
-                 _ID, _contentLength, _content.length());
+    ESPWS_DEBUGV("<%d> Corrected content length overshoot %d -> %d\n", _ID, _contentLength, _content.length());
     _contentLength = _content.length();
   }
 
@@ -320,9 +314,10 @@ void AsyncStringRefResponse::assembleHead(uint8_t version) {
 }
 
 bool AsyncStringRefResponse::prepareContentSendBuf(size_t space) {
-  if (prepareAllocatedSendBuf((uint8_t*)_content.begin(), _contentLength, space)) {
+  if (_bufPrepared >= _contentLength)
     return AsyncSimpleResponse::prepareContentSendBuf(space);
-  }
+
+  prepareAllocatedSendBuf((uint8_t*)_content.begin(), _contentLength, space);
   return true;
 }
 
@@ -349,20 +344,20 @@ bool AsyncBufferedResponse::prepareContentSendBuf(size_t space) {
 
   size_t bufToSend = (_contentLength == -1)? space : _contentLength - _bufPrepared;
   _bufLen = (space < bufToSend)? space : bufToSend;
-  ESPWS_DEBUGV("[AsyncBufferedResponse::prepareContentSendBuf] <%d> Preparing %d / %d\n", _ID, _bufLen, bufToSend);
+  ESPWS_DEBUGV("<%d> Preparing %d / %d\n", _ID, _bufLen, bufToSend);
 
   _sendbuf = (uint8_t*)malloc(_bufLen);
   if (_sendbuf) {
     _bufLen = fillBuffer((uint8_t*)_sendbuf, _bufLen);
     _bufPrepared+= _bufLen;
   } else {
-    ESPWS_DEBUGV("[AsyncBufferedResponse::prepareContentSendBuf] <%d> Buffer allocation failed!\n", _ID);
+    ESPWS_DEBUGV("<%d> Buffer allocation failed!\n", _ID);
   }
   return true;
 }
 
 void AsyncBufferedResponse::releaseSendBuf(void) {
-  if (_state != RESPONSE_HEADERS)
+  if (_state > RESPONSE_HEADERS)
     free((void*)_sendbuf);
   _sendbuf = NULL;
 }
@@ -376,7 +371,7 @@ AsyncFileResponse::AsyncFileResponse(File const& content, const String& path, co
   , _content(content)
 {
   if (_content) {
-    ESPWS_DEBUGV("[AsyncFileResponse::_prepareServing] <%d> File '%s'\n", _ID, path.c_str());
+    ESPWS_DEBUGV("<%d> File '%s'\n", _ID, path.c_str());
     _contentLength = _content.size();
 
     if (contentType.empty()) {
@@ -404,8 +399,7 @@ AsyncFileResponse::AsyncFileResponse(File const& content, const String& path, co
       else if (extension == "gz") _contentType = "application/x-gzip";
       else _contentType = "application/octet-stream";
 
-      ESPWS_DEBUGVV("[AsyncFileResponse::_prepareServing] <%d> Extension '%s', MIME '%s'\n",
-                   _ID, extension.c_str(), _contentType.c_str());
+      ESPWS_DEBUGVV("<%d> Extension '%s', MIME '%s'\n", _ID, extension.c_str(), _contentType.c_str());
     }
 
     if (String(_content.name()).endsWith(".gz")) {
@@ -426,8 +420,7 @@ AsyncFileResponse::AsyncFileResponse(File const& content, const String& path, co
 void AsyncFileResponse::assembleHead(uint8_t version) {
   if (_content) {
     if (_contentLength > _content.size() && _contentLength != -1) {
-      ESPWS_DEBUGV("[AsyncFileResponse::assembleHead] <%d> Corrected content length overshoot %d -> %d\n",
-                   _ID, _contentLength, _content.size());
+      ESPWS_DEBUGV("<%d> Corrected content length overshoot %d -> %d\n", _ID, _contentLength, _content.size());
       _contentLength = _content.size();
     }
   } else {
@@ -442,7 +435,7 @@ void AsyncFileResponse::assembleHead(uint8_t version) {
 
 size_t AsyncFileResponse::fillBuffer(uint8_t *buf, size_t maxLen) {
   size_t outLen = _content.read(buf, maxLen);
-  ESPWS_DEBUGVV("[AsyncFileResponse::fillBuffer] <%d> File read up to %d, got %d\n", _ID, maxLen, outLen);
+  ESPWS_DEBUGVV("<%d> File read up to %d, got %d\n", _ID, maxLen, outLen);
   // Unsized content stop condition
   if (_contentLength == -1 && !outLen) {
     _contentLength = 0; // Stops fillBuffer from being called again

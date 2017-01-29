@@ -23,6 +23,7 @@
 #include "WebAuthentication.h"
 
 extern "C" {
+  #include <errno.h>
   #include "lwip/opt.h"
 }
 
@@ -39,15 +40,17 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer* s, AsyncClient* c)
   , _server(s)
   , _handler(NULL)
   , _response(NULL)
-  , _temp()
+  //, _interestingHeaders()
+  , _wantAllHeaders(false)
+  //, _temp()
   , _parseState(0)
   , _version(0)
   , _method(HTTP_ANY)
-  , _url()
-  , _host()
-  , _contentType()
-  , _boundary()
-  , _authorization()
+  //, _url()
+  //, _host()
+  //, _contentType()
+  //, _boundary()
+  //, _authorization()
   , _isDigest(false)
   , _isMultipart(false)
   , _isPlainPost(false)
@@ -60,15 +63,16 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer* s, AsyncClient* c)
   , _boundaryPosition(0)
   , _itemStartIndex(0)
   , _itemSize(0)
-  , _itemName()
-  , _itemFilename()
-  , _itemType()
-  , _itemValue()
+  //, _itemName()
+  //, _itemFilename()
+  //, _itemType()
+  //, _itemValue()
   , _itemBuffer(0)
   , _itemBufferIndex(0)
   , _itemIsFile(false)
   ESPWS_DEBUGDO(, _remoteIdent(c->remoteIP().toString()+':'+c->remotePort()))
 {
+  ESPWS_DEBUGV("[%s] CONNECTED\n", _remoteIdent.c_str());
   c->onError([](void *r, AsyncClient* c, int8_t error){
     AsyncWebServerRequest *req = (AsyncWebServerRequest*)r;
     req->_onError(error);
@@ -103,26 +107,26 @@ AsyncWebServerRequest::~AsyncWebServerRequest(){
 #define __is_param_char(c) ((c) && ((c) != '{') && ((c) != '[') && ((c) != '&') && ((c) != '='))
 
 void AsyncWebServerRequest::_onData(void *buf, size_t len){
-  DEBUGV("[AsyncWebServerRequest::_onData]\n");
   char *str = (char*)buf;
-
   while (true) {
     if(_parseState < PARSE_REQ_BODY){
       // Find new line in buf
       size_t i = 0;
-      while (str[i] != '\n')
+      while (str[i] != '\n') {
         if (++i >= len) {
           // No new line, just add the buffer in _temp
           _temp.concat(str, len);
           return;
         }
+      }
       // Found new line - extract it and parse
       _temp.concat(str, i);
       _temp.trim();
       _parseLine();
+      _temp.clear();
       if (++i < len) {
         // Still have more buffer to process
-        buf = str+i;
+        buf = str+= i;
         len-= i;
         continue;
       }
@@ -137,10 +141,10 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len){
         if(_parsedLength == 0){
           if(_contentType.startsWith("application/x-www-form-urlencoded")){
             _isPlainPost = true;
-          } else if(_contentType == "text/plain" && __is_param_char(((char*)buf)[0])){
+          } else if(_contentType == "text/plain" && __is_param_char(*str)){
             size_t i = 0;
-            while (i<len && __is_param_char(((char*)buf)[i++]));
-            if(i < len && ((char*)buf)[i-1] == '=')
+            while (i<len && __is_param_char(str[i++]));
+            if(i < len && str[i-1] == '=')
               _isPlainPost = true;
           }
         }
@@ -152,7 +156,7 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len){
           size_t i;
           for(i=0; i<len; i++){
             _parsedLength++;
-            _parsePlainPostChar(((uint8_t*)buf)[i]);
+            _parsePlainPostChar(str[i]);
           }
         }
       }
@@ -198,31 +202,88 @@ void AsyncWebServerRequest::_onTimeout(uint32_t time){
 }
 
 void AsyncWebServerRequest::_onDisconnect(){
-  ESPWS_DEBUG("[%s] DISCONNECT, response state: %s\n", _remoteIdent.c_str(), _response? _response->stateToString() : "NULL");
+  ESPWS_DEBUGV("[%s] DISCONNECT, response state: %s\n", _remoteIdent.c_str(), _response? _response->stateToString() : "NULL");
   _server->_handleDisconnect(this);
+}
+
+static const char response[] = "HTTP/1.1 100 Continue\r\n\r\n";
+
+void AsyncWebServerRequest::_parseLine(){
+  if(_parseState == PARSE_REQ_START){
+    if(!_temp.empty() && _parseReqHead()) {
+      // Perform rewrite and handler lookup
+      _server->_rewriteRequest(this);
+      _server->_attachHandler(this);
+
+      _parseState = PARSE_REQ_HEADERS;
+    } else {
+      _parseState = PARSE_REQ_FAIL;
+      _client->close();
+    }
+  } else if(_parseState == PARSE_REQ_HEADERS) {
+    if(!_temp.empty()) {
+      // More headers
+      if (!_parseReqHeader()) {
+        _parseState = PARSE_REQ_FAIL;
+        _client->close();
+      }
+    } else {
+      // End of headers
+
+      // Protocol compliance checking
+      if (_version && !_host) {
+        // Host header is required for HTTP/1.1 per RFC
+        send(400);
+      } else {
+        // TODO: Check handler for authentication
+        if(!_handler) {
+          // No handler available
+          send(501);
+        } else {
+          // Handle 100-Continue
+          if(_expectingContinue)
+            _client->write(response, sizeof(response));
+
+          if(_contentLength){
+            _parseState = PARSE_REQ_BODY;
+          } else {
+            _parseState = PARSE_REQ_END;
+            _handler->handleRequest(this);
+          }
+        }
+      }
+    }
+  }
 }
 
 void AsyncWebServerRequest::_addParam(AsyncWebParameter *p){
   _params.add(p);
 }
 
-void AsyncWebServerRequest::_addGetParams(const String& params){
-  size_t start = 0;
-  while (start < params.length()){
-    int end = params.indexOf('&', start);
-    if (end < 0) end = params.length();
-    int equal = params.indexOf('=', start);
-    if (equal < 0 || equal > end) equal = end;
-    String name = params.substring(start, equal);
-    String value = equal + 1 < end ? params.substring(equal + 1, end) : String();
-    _addParam(new AsyncWebParameter(std::move(name), std::move(value)));
-    start = end + 1;
+void AsyncWebServerRequest::_parseGetParams(char *params){
+  while (*params){
+    char *name = params;
+    while (*params != '&')
+      if (*params) params++;
+      else break;
+    if (name == params) {
+      params++;
+      continue;
+    }
+    if (*params) *params++ = '\0';
+
+    char *value = name;
+    while (*value != '=')
+      if (*value) value++;
+      else break;
+    if (*value) *value++ = '\0';
+
+    ESPWS_DEBUGVV("[%s] Query [%s] = '%s'\n", _remoteIdent.c_str(), name, value);
+    _addParam(new AsyncWebParameter(name, value));
   }
 }
 
 bool AsyncWebServerRequest::_parseReqHead(){
-  DEBUGV("[AsyncWebServerRequest::_parseReqHead]\n");
-
   // Split the head into method, url and version
   int indexUrl = _temp.indexOf(' ');
   if (indexUrl <= 0) return false;
@@ -232,82 +293,103 @@ bool AsyncWebServerRequest::_parseReqHead(){
   if (indexVer <= 0) return false;
   _temp[indexVer] = '\0';
 
-  DEBUGV("[AsyncWebServerRequest::_parseReqHead] %s %s %s\n", &_temp[0], &_temp[indexUrl+1], &_temp[indexVer+1]);
-
-  if (memcmp(_temp.begin(), "GET", 4) == 0) {
+  if (strcmp(_temp.begin(), "GET") == 0) {
     _method = HTTP_GET;
-  } else if (memcmp(_temp.begin(), "PUT", 4) == 0) {
+  } else if (strcmp(_temp.begin(), "PUT") == 0) {
     _method = HTTP_PUT;
-  } else if (memcmp(_temp.begin(), "POST", 5) == 0) {
+  } else if (strcmp(_temp.begin(), "POST") == 0) {
     _method = HTTP_POST;
-  } else if (memcmp(_temp.begin(), "HEAD", 5) == 0) {
+  } else if (strcmp(_temp.begin(), "HEAD") == 0) {
     _method = HTTP_HEAD;
-  } else if (memcmp(_temp.begin(), "PATCH", 6) == 0) {
+  } else if (strcmp(_temp.begin(), "PATCH") == 0) {
     _method = HTTP_PATCH;
-  } else if (memcmp(_temp.begin(), "DELETE", 7) == 0) {
+  } else if (strcmp(_temp.begin(), "DELETE") == 0) {
     _method = HTTP_DELETE;
-  } else if (memcmp(_temp.begin(), "OPTIONS", 8) == 0) {
+  } else if (strcmp(_temp.begin(), "OPTIONS") == 0) {
     _method = HTTP_OPTIONS;
   }
 
   _version = memcmp(&_temp[indexVer+1], "HTTP/1.0", 8)? 1 : 0;
 
   _url = urlDecode(&_temp[indexUrl+1]);
+
+  ESPWS_DEBUGVV("[%s] HTTP/1.%d %s %s\n", _remoteIdent.c_str(), _version, methodToString(), _url.c_str());
+
   int indexQuery = _url.indexOf('?');
   if(indexQuery > 0){
-    _addGetParams(&_url[indexQuery+1]);
+    _parseGetParams(&_url[indexQuery+1]);
     _url.remove(indexQuery);
   }
-
-  _temp.clear();
   return true;
 }
 
 bool AsyncWebServerRequest::_parseReqHeader(){
-  int index = _temp.indexOf(':');
-  if(index){
-    uint16_t valofs = index + 1;
-    while (_temp[valofs] == ' ') valofs++;
-    String value = _temp.substring(valofs);
-    _temp.remove(index);
+  // Split the header into key and value
+  int keyEnd = _temp.indexOf(':');
+  if (keyEnd <= 0) return false;
+  int indexValue = keyEnd;
+  while (_temp[++indexValue] == ' ');
+  String value = _temp.substring(indexValue);
+  _temp.remove(keyEnd);
 
-    if(_temp.equalsIgnoreCase("Host")){
-      _host = std::move(value);
-      _server->_rewriteRequest(this);
-      _server->_attachHandler(this);
-    } else if(_temp.equalsIgnoreCase("Content-Type")){
-      if (value.startsWith("multipart/")){
-        _boundary = value.substring(value.indexOf('=')+1);
-        _contentType = value.substring(0, value.indexOf(';'));
-        _isMultipart = true;
-      } else {
-        _contentType = std::move(value);
-      }
-    } else if(_temp.equalsIgnoreCase("Content-Length")){
-      _contentLength = atoi(value.begin());
-    } else if(_temp.equalsIgnoreCase("Expect")) {
-      if (value == "100-continue") {
-        _expectingContinue = true;
-      }
-    } else if(_temp.equalsIgnoreCase("Authorization")){
-      if(value.length() > 5 && value.substring(0,5).equalsIgnoreCase("Basic")){
-        _authorization = value.substring(6);
-      } else if(value.length() > 6 && value.substring(0,6).equalsIgnoreCase("Digest")){
-        _isDigest = true;
-        _authorization = value.substring(7);
-      }
+  ESPWS_DEBUGVV("[%s] Header [%s] : '%s'\n", _remoteIdent.c_str(), _temp.c_str(), value.c_str());
+
+  if (_temp.equalsIgnoreCase("Host")) {
+    _host = std::move(value);
+    // In case host is empty string, at least mark the header as present
+    if (!_host) _host.reserve(0);
+    ESPWS_DEBUGVV("[%s] + Host: '%s'\n", _remoteIdent.c_str(), _host.c_str());
+  } else if (_temp.equalsIgnoreCase("Content-Type")) {
+    if (strncmp(value.begin(), "multipart/", 10) == 0) {
+      int typeEnd = value.indexOf(';', 10);
+      if (typeEnd <= 0) return false;
+      int indexBoundary = value.indexOf('=', typeEnd + 8);
+      if (indexBoundary <= 0) return false;
+      _boundary = &value[indexBoundary+1];
+      value.remove(typeEnd);
+
+      _contentType = std::move(value);
+      _isMultipart = true;
+      ESPWS_DEBUGVV("[%s] + Content-Type: '%s', boundary='%s'\n", _remoteIdent.c_str(), _contentType.c_str(), _boundary.c_str());
     } else {
-      if(_interestingHeaders.containsIgnoreCase(_temp) || _interestingHeaders.containsIgnoreCase("ANY")){
-        _headers.add(new AsyncWebHeader(std::move(_temp), std::move(value)));
-      }
+      _contentType = std::move(value);
+      ESPWS_DEBUGVV("[%s] + Content-Type: '%s'\n", _remoteIdent.c_str(), _contentType.c_str());
+    }
+  } else if (_temp.equalsIgnoreCase("Content-Length")) {
+    _contentLength = atoi(value.begin());
+    if (!_contentLength && errno) return false;
+    ESPWS_DEBUGVV("[%s] + Content-Length: %d\n", _remoteIdent.c_str(), _contentLength);
+  } else if (_temp.equalsIgnoreCase("Expect")) {
+    if (value.equalsIgnoreCase("100-continue")) {
+      _expectingContinue = true;
+      ESPWS_DEBUGVV("[%s] + Expect: 100-continue\n", _remoteIdent.c_str());
+    }
+  } else if (_temp.equalsIgnoreCase("Authorization")) {
+    int authEnd = value.indexOf(' ');
+    if (authEnd <= 0) return false;
+    int indexData = authEnd;
+    while (value[++indexData] == ' ');
+    _authorization = &value[indexData];
+    value.remove(authEnd);
+
+    if (value.equalsIgnoreCase("Basic")) {
+      ESPWS_DEBUGVV("[%s] + Authorization: Basic '%s'\n", _remoteIdent.c_str(), _authorization.c_str());
+      // Do Nothing
+    } else if (value.equalsIgnoreCase("Digest")) {
+      ESPWS_DEBUGVV("[%s] + Authorization: Digest '%s'\n", _remoteIdent.c_str(), _authorization.c_str());
+      _isDigest = true;
+    } else return false;
+  } else {
+    if (_wantAllHeaders || _interestingHeaders.containsIgnoreCase(_temp.begin())) {
+      ESPWS_DEBUGVV("[%s] ? %s: '%s'\n", _remoteIdent.c_str(), _temp.begin(), value.begin());
+      _headers.add(new AsyncWebHeader(std::move(_temp), std::move(value)));
     }
   }
-  _temp.clear();
   return true;
 }
 
-void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data){
-  if(!data || (char)data == '&' || _parsedLength >= _contentLength){
+void AsyncWebServerRequest::_parsePlainPostChar(char data){
+  if(!data || data == '&' || _parsedLength >= _contentLength){
     String name = urlDecode(_temp);
     String value;
     uint16_t delim;
@@ -320,7 +402,7 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data){
     }
     _addParam(new AsyncWebParameter(std::move(name), std::move(value), true));
     _temp.clear();
-  } else _temp += (char)data;
+  } else _temp += data;
 }
 
 void AsyncWebServerRequest::_handleUploadByte(uint8_t data, bool last){
@@ -508,37 +590,6 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last){
   }
 }
 
-static const char response[] = "HTTP/1.1 100 Continue\r\n\r\n";
-
-void AsyncWebServerRequest::_parseLine(){
-  DEBUGV("[AsyncWebServerRequest::_parseLine]\n");
-
-  if(_parseState == PARSE_REQ_START){
-    if(!_temp.empty() && _parseReqHead()) {
-      _parseState = PARSE_REQ_HEADERS;
-    } else {
-      _parseState = PARSE_REQ_FAIL;
-      _client->close();
-    }
-    return;
-  }
-
-  if(_parseState == PARSE_REQ_HEADERS){
-    if(_temp.empty()){
-      //end of headers
-      if(_expectingContinue)
-        _client->write(response, sizeof(response));
-      //check handler for authentication
-      if(_contentLength){
-        _parseState = PARSE_REQ_BODY;
-      } else {
-        _parseState = PARSE_REQ_END;
-        if(_handler) _handler->handleRequest(this);
-        else send(501);
-      }
-    } else _parseReqHeader();
-  }
-}
 
 size_t AsyncWebServerRequest::headers() const{
   return _headers.length();
@@ -592,8 +643,13 @@ AsyncWebParameter* AsyncWebServerRequest::getParam(size_t num) const {
 }
 
 void AsyncWebServerRequest::addInterestingHeader(const String& name){
-  if(!_interestingHeaders.containsIgnoreCase(name))
-    _interestingHeaders.add(name);
+  if (name != "*") {
+    if(!_interestingHeaders.containsIgnoreCase(name))
+      _interestingHeaders.add(name);
+  } else {
+    _interestingHeaders.free();
+    _wantAllHeaders = true;
+  }
 }
 
 void AsyncWebServerRequest::send(AsyncWebServerResponse *response){

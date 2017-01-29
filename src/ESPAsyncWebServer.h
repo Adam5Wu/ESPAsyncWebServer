@@ -38,14 +38,14 @@
 #endif
 
 #define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
-#define ESPWS_DEBUG_LEVEL 2
+#define ESPWS_DEBUG_LEVEL 3
 
 #if ESPWS_DEBUG_LEVEL < 1
   #define ESPWS_DEBUGDO(...)
   #define ESPWS_DEBUG(...)
 #else
   #define ESPWS_DEBUGDO(...) __VA_ARGS__
-  #define ESPWS_DEBUG(...) Serial.printf(__VA_ARGS__)
+  #define ESPWS_DEBUG(...) ets_printf(__VA_ARGS__)
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 2
@@ -53,7 +53,7 @@
   #define ESPWS_DEBUGV(...)
 #else
   #define ESPWS_DEBUGVDO(...) __VA_ARGS__
-  #define ESPWS_DEBUGV(...) Serial.printf(__VA_ARGS__)
+  #define ESPWS_DEBUGV(...) ets_printf(__VA_ARGS__)
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 3
@@ -61,7 +61,7 @@
   #define ESPWS_DEBUGVV(...)
 #else
   #define ESPWS_DEBUGVVDO(...) __VA_ARGS__
-  #define ESPWS_DEBUGVV(...) Serial.printf(__VA_ARGS__)
+  #define ESPWS_DEBUGVV(...) ets_printf(__VA_ARGS__)
 #endif
 
 #define DEFAULT_REALM "ESP8266"
@@ -158,6 +158,7 @@ class AsyncWebServerRequest {
     AsyncWebHandler* _handler;
     AsyncWebServerResponse* _response;
     StringArray _interestingHeaders;
+    bool _wantAllHeaders;
 
     String _temp;
     uint8_t _parseState;
@@ -203,9 +204,9 @@ class AsyncWebServerRequest {
     bool _parseReqHead();
     bool _parseReqHeader();
     void _parseLine();
-    void _parsePlainPostChar(uint8_t data);
+    void _parsePlainPostChar(char data);
     void _parseMultipartPostByte(uint8_t data, bool last);
-    void _addGetParams(const String& params);
+    void _parseGetParams(char *params);
 
     void _handleUploadStart();
     void _handleUploadByte(uint8_t data, bool last);
@@ -375,7 +376,7 @@ class AsyncWebHandler {
  * */
 
 typedef enum {
-  RESPONSE_SETUP, RESPONSE_HEADERS, RESPONSE_CONTENT, RESPONSE_WAIT_ACK, RESPONSE_END, RESPONSE_FAILED
+  RESPONSE_SETUP, RESPONSE_STATUS, RESPONSE_HEADERS, RESPONSE_CONTENT, RESPONSE_WAIT_ACK, RESPONSE_END, RESPONSE_FAILED
 } WebResponseState;
 
 class AsyncWebServerResponse {
