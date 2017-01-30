@@ -113,20 +113,21 @@ static String generateEventMessage(const char *message, const char *event, uint3
 
 // Client
 
-AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, AsyncEventSource *server){
-  _client = request->client();
-  _server = server;
+AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebRequest *request, AsyncEventSource &server)
+  : _server(server)
+  , _client(request->_client)
+{
   _lastId = 0;
   if(request->hasHeader("Last-Event-ID"))
-    _lastId = atoi(request->getHeader("Last-Event-ID")->value().c_str());
+    _lastId = request->getHeader("Last-Event-ID")->values.first()->toInt();
 
-  _client->onError(NULL, NULL);
-  _client->onAck(NULL, NULL);
-  _client->onPoll(NULL, NULL);
-  _client->onData(NULL, NULL);
-  _client->onTimeout([](void *r, AsyncClient* c __attribute__((unused)), uint32_t time){ ((AsyncEventSourceClient*)(r))->_onTimeout(time); }, this);
-  _client->onDisconnect([](void *r, AsyncClient* c){ ((AsyncEventSourceClient*)(r))->_onDisconnect(); delete c; }, this);
-  _server->_addClient(this);
+  _client.onError(NULL, NULL);
+  _client.onAck(NULL, NULL);
+  _client.onPoll(NULL, NULL);
+  _client.onData(NULL, NULL);
+  _client.onTimeout([](void *r, AsyncClient* c __attribute__((unused)), uint32_t time){ ((AsyncEventSourceClient*)(r))->_onTimeout(time); }, this);
+  _client.onDisconnect([](void *r, AsyncClient* c){ ((AsyncEventSourceClient*)(r))->_onDisconnect(); delete c; }, this);
+  _server._addClient(this);
   delete request;
 }
 
@@ -135,27 +136,25 @@ AsyncEventSourceClient::~AsyncEventSourceClient(){
 }
 
 void AsyncEventSourceClient::_onTimeout(uint32_t time __attribute__((unused))){
-  _client->close(true);
+  _client.close(true);
 }
 
 void AsyncEventSourceClient::_onDisconnect(){
-  _client = NULL;
-  _server->_handleDisconnect(this);
+  _server._handleDisconnect(this);
 }
 
 void AsyncEventSourceClient::close(){
-  if(_client != NULL)
-    _client->close();
+  _client.close();
 }
 
 void AsyncEventSourceClient::write(const char * message, size_t len){
-  if(!_client->canSend()){
+  if(!_client.canSend()){
     return;
   }
-  if(_client->space() < len){
+  if(_client.space() < len){
     return;
   }
-  _client->write(message, len);
+  _client.write(message, len);
 }
 
 void AsyncEventSourceClient::send(const char *message, const char *event, uint32_t id, uint32_t reconnect){
@@ -192,8 +191,7 @@ void AsyncEventSource::_handleDisconnect(AsyncEventSourceClient * client){
 
 void AsyncEventSource::close(){
   for(const auto &c: _clients){
-    if(c->connected())
-      c->close();
+    if(c->connected()) c->close();
   }
 }
 
@@ -214,20 +212,23 @@ size_t AsyncEventSource::count() const {
   });
 }
 
-bool AsyncEventSource::canHandle(AsyncWebServerRequest *request){
-  if(request->method() != HTTP_GET || !request->url().equals(_url))
+bool AsyncEventSource::_canHandle(AsyncWebRequest const &request){
+  if (request.method() != HTTP_GET || !request.url().equals(_url))
     return false;
-  request->addInterestingHeader("Last-Event-ID");
   return true;
 }
 
-void AsyncEventSource::handleRequest(AsyncWebServerRequest *request){
-  request->send(new AsyncEventSourceResponse(this));
+bool AsyncEventSource::_isInterestingHeader(String const& key) {
+  return key.equalsIgnoreCase("Last-Event-ID");
+}
+
+void AsyncEventSource::_handleRequest(AsyncWebRequest &request){
+  request.send(new AsyncEventSourceResponse(*this));
 }
 
 // Response
 
-AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server)
+AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource &server)
   : AsyncBasicResponse(200, "text/event-stream")
   , _server(server)
 {
@@ -235,9 +236,9 @@ AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server)
   addHeader("Connection", "keep-alive");
 }
 
-void AsyncEventSourceResponse::requestCleanup(AsyncWebServerRequest *request) {
+void AsyncEventSourceResponse::_requestCleanup(void) {
   if (_state == RESPONSE_END)
-    new AsyncEventSourceClient(request, _server);
+    new AsyncEventSourceClient(_request, _server);
   else
-    AsyncSimpleResponse::requestCleanup(request);
+    AsyncSimpleResponse::_requestCleanup();
 }

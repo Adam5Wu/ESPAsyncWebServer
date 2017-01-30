@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.02
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -21,146 +21,101 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
-bool ON_STA_FILTER(AsyncWebServerRequest *request) {
-  return WiFi.localIP() == request->client()->localIP();
+#if ASYNC_TCP_SSL_ENABLED && USE_VFATFS
+  #include "vfatfs_api.h"
+#endif
+
+String const EMPTY_STRING;
+
+bool ON_STA_FILTER(AsyncWebRequest const &request) {
+  return WiFi.localIP() == request._client.localIP();
 }
 
-bool ON_AP_FILTER(AsyncWebServerRequest *request) {
-  return WiFi.localIP() != request->client()->localIP();
+bool ON_AP_FILTER(AsyncWebRequest const &request) {
+  return WiFi.localIP() != request._client.localIP();
 }
 
+char const *AsyncWebServer::VERTOKEN = "ESPAsyncHTTPd/0.1";
 
-AsyncWebServer::AsyncWebServer(uint16_t port)
+AsyncWebServer::AsyncWebServer(uint16_t port, uint32_t reqIdleTimeout)
   : _server(port)
+  , _reqIdleTimeout(reqIdleTimeout)
   , _rewrites(LinkedList<AsyncWebRewrite*>([](AsyncWebRewrite* r){ delete r; }))
   , _handlers(LinkedList<AsyncWebHandler*>([](AsyncWebHandler* h){ delete h; }))
+  //, _catchAllHandler()
 {
-  _catchAllHandler = new AsyncCallbackWebHandler();
-  if(_catchAllHandler == NULL) return;
-  _server.onClient([](void *s, AsyncClient* c){
-    if(c == NULL) return;
-    c->setRxTimeout(3);
-    AsyncWebServerRequest *r = new AsyncWebServerRequest((AsyncWebServer*)s, c);
-    if(r == NULL) delete c;
+  _server.onClient([](void* arg, AsyncClient* c){
+    ((AsyncWebServer*)arg)->_handleClient(c);
   }, this);
 }
 
-AsyncWebServer::~AsyncWebServer(){
-  reset();
-  delete _catchAllHandler;
-}
-
-AsyncWebRewrite& AsyncWebServer::addRewrite(AsyncWebRewrite* rewrite){
-  _rewrites.add(rewrite);
-  return *rewrite;
-}
-
-bool AsyncWebServer::removeRewrite(AsyncWebRewrite *rewrite){
-  return _rewrites.remove(rewrite);
-}
-
-AsyncWebRewrite& AsyncWebServer::rewrite(const char* from, const char* to){
-  return addRewrite(new AsyncWebRewrite(from, to));
-}
-
-AsyncWebHandler& AsyncWebServer::addHandler(AsyncWebHandler* handler){
-  _handlers.add(handler);
-  return *handler;
-}
-
-bool AsyncWebServer::removeHandler(AsyncWebHandler *handler){
-  return _handlers.remove(handler);
-}
-
-void AsyncWebServer::begin(){
-  _server.begin();
+void AsyncWebServer::_handleClient(AsyncClient* c) {
+  if(c == NULL) return;
+  c->setRxTimeout(_reqIdleTimeout);
+  AsyncWebRequest *r = new AsyncWebRequest(*this, *c);
+  if(r == NULL) delete c;
 }
 
 #if ASYNC_TCP_SSL_ENABLED
-void AsyncWebServer::onSslFileRequest(AcSSlFileHandler cb, void* arg){
-  _server.onSslFileRequest(cb, arg);
+int AsyncWebServer::_loadSSLCert(const char *filename, uint8_t **buf) {
+#if USE_VFATFS
+  File cert = VFATFS.open(filename, "r");
+  if (cert) {
+    size_t certsize = cert.size();
+    uint8_t* certdata = (uint8_t*)malloc(cert.size());
+    if (certdata) {
+      *buf = certdata;
+      while (certsize) {
+        size_t readlen = cert.read(certdata, certsize);
+        certdata+= readlen;
+        certsize-= readlen;
+      }
+      return 1;
+    }
+  }
+#endif
+  return 0;
 }
 
 void AsyncWebServer::beginSecure(const char *cert, const char *key, const char *password){
+  _server.onSslFileRequest([](void* arg, const char *filename, uint8_t **buf){
+    return ((AsyncWebServer*)arg)->_loadSslCert(filename, buf);
+  }, this);
   _server.beginSecure(cert, key, password);
 }
 #endif
 
-void AsyncWebServer::_handleDisconnect(AsyncWebServerRequest *request){
-  delete request;
-}
-
-void AsyncWebServer::_rewriteRequest(AsyncWebServerRequest *request){
-  for(const auto& r: _rewrites){
-    if (r->from() == request->_url && r->filter(request)){
-      request->_url = r->toUrl();
-      String rParams(r->params());
-      request->_parseGetParams(rParams.begin());
-    }
-  }
-}
-
-void AsyncWebServer::_attachHandler(AsyncWebServerRequest *request){
-  for(const auto& h: _handlers){
-    if (h->filter(request) && h->canHandle(request)){
-      request->setHandler(h);
-      return;
-    }
-  }
-
-  request->addInterestingHeader("*");
-  request->setHandler(_catchAllHandler);
-}
-
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
-                                            ArUploadHandlerFunction const& onUpload, ArBodyHandlerFunction const& onBody){
-  AsyncCallbackWebHandler& handler = on(uri,method,onRequest,onUpload);
-  handler.onBody(onBody);
-  return handler;
-}
-
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
-                                            ArUploadHandlerFunction const& onUpload){
-  AsyncCallbackWebHandler& handler = on(uri,method,onRequest);
-  handler.onUpload(onUpload);
-  return handler;
-}
-
 AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest){
-  AsyncCallbackWebHandler& handler = on(uri,onRequest);
-  handler.setMethod(method);
-  return handler;
+  AsyncCallbackWebHandler* handler = new AsyncCallbackWebHandler(uri, method);
+  handler->onRequest = onRequest;
+  return addHandler(handler), *handler;
 }
 
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, ArRequestHandlerFunction const& onRequest){
-  AsyncCallbackWebHandler* handler = new AsyncCallbackWebHandler();
-  handler->setUri(uri);
-  handler->onRequest(onRequest);
-  addHandler(handler);
-  return *handler;
+#ifdef HANDLE_REQUEST_CONTENT
+AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
+                                            ArBodyHandlerFunction const& onBody){
+  AsyncCallbackWebHandler& handler = on(uri,method,onRequest);
+  handler.onBody = onBody;
+  return handler;
 }
+#endif
 
 AsyncStaticWebHandler& AsyncWebServer::serveStatic(const char* uri, Dir const& dir, const char* indexFile, const char* cache_control){
   AsyncStaticWebHandler* handler = new AsyncStaticWebHandler(uri, dir, cache_control);
   handler->setIndexFile(indexFile);
-  addHandler(handler);
-  return *handler;
+  return addHandler(handler), *handler;
 }
 
-void AsyncWebServer::catchAll(ArRequestHandlerFunction const& fn){
-  ((AsyncCallbackWebHandler*)_catchAllHandler)->onRequest(fn);
+void AsyncWebServer::_rewriteRequest(AsyncWebRequest &request) const {
+  for (const auto& r: _rewrites) {
+    if (r->_filter(request)) r->_perform(request);
+  }
 }
 
-void AsyncWebServer::catchAll(ArUploadHandlerFunction const& fn){
-  ((AsyncCallbackWebHandler*)_catchAllHandler)->onUpload(fn);
-}
-
-void AsyncWebServer::catchAll(ArBodyHandlerFunction const& fn){
-  ((AsyncCallbackWebHandler*)_catchAllHandler)->onBody(fn);
-}
-
-void AsyncWebServer::reset(){
-  ((AsyncCallbackWebHandler*)_catchAllHandler)->onRequest(NULL);
-  ((AsyncCallbackWebHandler*)_catchAllHandler)->onUpload(NULL);
-  ((AsyncCallbackWebHandler*)_catchAllHandler)->onBody(NULL);
+void AsyncWebServer::_attachHandler(AsyncWebRequest &request) const {
+  AsyncWebHandler** handler = _handlers.get_if([&](AsyncWebHandler *h) {
+    return h->_filter(request) && h->_canHandle(request);
+  });
+  if (handler) request._handler = *handler;
+  else request._handler = (AsyncWebHandler*)&_catchAllHandler;
 }

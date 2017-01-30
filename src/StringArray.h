@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  This file is part of the esp8266 core for Arduino environment.
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -21,175 +21,24 @@
 #ifndef STRINGARRAY_H_
 #define STRINGARRAY_H_
 
-#include "stddef.h"
+#include "LinkedList.h"
 #include "WString.h"
-
-template <typename T>
-class LinkedListNode {
-    T _value;
-  public:
-    LinkedListNode<T>* next;
-    LinkedListNode(const T val): _value(val), next(NULL) {}
-
-    const T& value() const { return _value; };
-    T& value(){ return _value; }
-};
-
-template <typename T, template<typename> class ItemT = LinkedListNode>
-class LinkedList {
-  public:
-    typedef ItemT<T> ItemType;
-
-    class Iterator {
-        ItemType* _node;
-      public:
-        Iterator(ItemType* current = NULL) : _node(current) {}
-        Iterator(const Iterator& i) : _node(i._node) {}
-        Iterator& operator ++() { _node = _node->next; return *this; }
-        bool operator != (const Iterator& i) const { return _node != i._node; }
-        const T& operator * () const { return _node->value(); }
-        const T* operator -> () const { return &_node->value(); }
-    };
-
-    typedef const Iterator ConstIterator;
-
-    typedef std::function<void(const T&)> OnRemove;
-    typedef std::function<bool(const T&)> Predicate;
-
-  private:
-    ItemType* _root;
-    OnRemove _onRemove;
-
-  public:
-    LinkedList(OnRemove onRemove) : _root(NULL), _onRemove(onRemove) {}
-    virtual ~LinkedList() { free(); }
-
-    void add(const T& t){
-      auto it = new ItemType(t);
-      if(!_root){
-        _root = it;
-      } else {
-        auto i = _root;
-        while(i->next) i = i->next;
-        i->next = it;
-      }
-    }
-
-    bool isEmpty() const { return _root == NULL; }
-    T& front() const { return _root->value(); }
-    ConstIterator begin() const { return ConstIterator(_root); }
-    ConstIterator end() const { return ConstIterator(NULL); }
-
-    size_t length() const {
-      size_t i = 0;
-      auto it = _root;
-      while(it){
-        i++;
-        it = it->next;
-      }
-      return i;
-    }
-
-    size_t count_if(Predicate predicate) const {
-      size_t i = 0;
-      auto it = _root;
-      while(it){
-        if (!predicate){
-          i++;
-        }
-        else if (predicate(it->value())) {
-          i++;
-        }
-        it = it->next;
-      }
-      return i;
-    }
-
-    const T* nth(size_t N) const {
-      size_t i = 0;
-      auto it = _root;
-      while(it){
-        if(i++ == N)
-          return &(it->value());
-        it = it->next;
-      }
-      return NULL;
-    }
-
-    bool remove(const T& t){
-      auto it = _root;
-      auto pit = _root;
-      while(it){
-        if(it->value() == t){
-          if(it == _root){
-            _root = _root->next;
-          } else {
-            pit->next = it->next;
-          }
-
-          if (_onRemove) {
-            _onRemove(it->value());
-          }
-
-          delete it;
-          return true;
-        }
-        pit = it;
-        it = it->next;
-      }
-      return false;
-    }
-
-    bool remove_first(Predicate predicate){
-      auto it = _root;
-      auto pit = _root;
-      while(it){
-        if(predicate(it->value())){
-          if(it == _root){
-            _root = _root->next;
-          } else {
-            pit->next = it->next;
-          }
-          if (_onRemove) {
-            _onRemove(it->value());
-          }
-          delete it;
-          return true;
-        }
-        pit = it;
-        it = it->next;
-      }
-      return false;
-    }
-
-    void free(){
-      while(_root != NULL){
-        auto it = _root;
-        _root = _root->next;
-        if (_onRemove) {
-          _onRemove(it->value());
-        }
-        delete it;
-      }
-      _root = NULL;
-    }
-};
 
 class StringArray : public LinkedList<String> {
   public:
     StringArray() : LinkedList(NULL) {}
 
-    bool containsIgnoreCase(const String& str){
-      for (const auto& s : *this) {
-        if (str.equalsIgnoreCase(s)) {
-          return true;
-        }
-      }
-      return false;
+    bool contains(const String& str) const {
+      return get_if([&](String const &v) {
+        return str.equals(v);
+      }) != NULL;
+    }
+
+    bool containsIgnoreCase(const String& str) const {
+      return get_if([&](String const &v) {
+        return str.equalsIgnoreCase(v);
+      }) != NULL;
     }
 };
-
-
-
 
 #endif /* STRINGARRAY_H_ */

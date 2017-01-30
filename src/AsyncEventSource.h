@@ -32,20 +32,19 @@ typedef std::function<void(AsyncEventSourceClient *client)> ArEventHandlerFuncti
 
 class AsyncEventSourceClient {
   private:
-    AsyncClient *_client;
-    AsyncEventSource *_server;
     uint32_t _lastId;
 
   public:
+    AsyncClient &_client;
+    AsyncEventSource &_server;
 
-    AsyncEventSourceClient(AsyncWebServerRequest *request, AsyncEventSource *server);
+    AsyncEventSourceClient(AsyncWebRequest *request, AsyncEventSource &server);
     ~AsyncEventSourceClient();
 
-    AsyncClient* client(){ return _client; }
     void close();
     void write(const char * message, size_t len);
     void send(const char *message, const char *event=NULL, uint32_t id=0, uint32_t reconnect=0);
-    bool connected() const { return (_client != NULL) && _client->connected(); }
+    bool connected() const { return _client.connected(); }
     uint32_t lastId() const { return _lastId; }
 
     //system callbacks (do not call)
@@ -55,14 +54,13 @@ class AsyncEventSourceClient {
 
 class AsyncEventSource: public AsyncWebHandler {
   private:
-    String _url;
     LinkedList<AsyncEventSourceClient *> _clients;
     ArEventHandlerFunction _connectcb;
   public:
+    String const _url;
     AsyncEventSource(const String& url);
     ~AsyncEventSource();
 
-    const char * url() const { return _url.c_str(); }
     void close();
     void onConnect(ArEventHandlerFunction cb);
     void send(const char *message, const char *event=NULL, uint32_t id=0, uint32_t reconnect=0);
@@ -71,17 +69,19 @@ class AsyncEventSource: public AsyncWebHandler {
     //system callbacks (do not call)
     void _addClient(AsyncEventSourceClient * client);
     void _handleDisconnect(AsyncEventSourceClient * client);
-    virtual bool canHandle(AsyncWebServerRequest *request) override final;
-    virtual void handleRequest(AsyncWebServerRequest *request) override final;
+
+    virtual bool _isInterestingHeader(String const& key) override final;
+    virtual bool _canHandle(AsyncWebRequest const &request) override final;
+    virtual void _handleRequest(AsyncWebRequest &request) override final;
 };
 
 class AsyncEventSourceResponse: public AsyncBasicResponse {
   private:
-    AsyncEventSource *_server;
+    AsyncEventSource &_server;
   protected:
-    virtual void requestCleanup(AsyncWebServerRequest *request) override;
+    virtual void _requestCleanup(void) override;
   public:
-    AsyncEventSourceResponse(AsyncEventSource *server);
+    AsyncEventSourceResponse(AsyncEventSource &server);
 };
 
 

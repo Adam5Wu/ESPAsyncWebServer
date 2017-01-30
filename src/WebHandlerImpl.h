@@ -2,7 +2,7 @@
   Asynchronous WebServer library for Espressif MCUs
 
   Copyright (c) 2016 Hristo Gochkov. All rights reserved.
-  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.01
+  Modified by Zhenyu Wu <Adam_5Wu@hotmail.com> for VFATFS, 2017.02
 
   This library is free software; you can redistribute it and/or
   modify it under the terms of the GNU Lesser General Public
@@ -27,100 +27,82 @@
 
 class AsyncPathURIWebHandler: public AsyncWebHandler {
   protected:
-    String _uri;
-    WebRequestMethodComposite _method;
-    ArRequestHandlerFunction _requestHandler;
+    // May not be compliant with standard (no protocol and server), but seems to work OK with most browsers
+    void _redirectDir(AsyncWebRequest &request)
+    { request.redirect(request.url()+'/'); }
 
   public:
-    AsyncPathURIWebHandler(const String& uri, WebRequestMethodComposite method) {
-      setUri(uri);
-      setMethod(method);
-    }
+    String const path;
+    WebRequestMethodComposite const method;
 
-    void setUri(const String& uri) {
-      _uri = uri[0]=='/'? uri : '/' + uri;
-      // Ensure trailing '/'
-      if (_uri.end()[-1] != '/') _uri+= '/';
-    }
-    void setMethod(WebRequestMethodComposite method) { _method = method; }
+    AsyncPathURIWebHandler(const String& p, WebRequestMethodComposite m)
+    : path(p[0]=='/'? p : '/' + p), method(m) {}
 
-    void dirRedirect(AsyncWebServerRequest *request) {
-      // May not be compliant with standard (no protocol and server), but seems to work OK with most browsers
-      request->redirect(request->url()+'/');
-    }
-    virtual bool canHandle(AsyncWebServerRequest *request) override;
-    virtual void handleRequest(AsyncWebServerRequest *request) override {
-      if (_requestHandler) _requestHandler(request);
-      else request->send(500); // Should not reach
-    }
+    virtual bool _canHandle(AsyncWebRequest const &request) override;
+    virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;
 };
 
 class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
-  private:
-    bool _prepareRequest(String&& subpath, AsyncWebServerRequest *request);
-
   protected:
     Dir _dir;
     String _cache_control;
     String _indexFile;
     bool _gzLookup, _gzFirst;
 
+    void _sendDirList(AsyncWebRequest &request);
+    void _pathNotFound(AsyncWebRequest &request);
+
+  public:
     ArRequestHandlerFunction _onIndex;
     ArRequestHandlerFunction _onPathNotFound;
     ArRequestHandlerFunction _onIndexNotFound;
+    ArRequestHandlerFunction _onDirRedirect;
 
-    virtual void sendDirList(AsyncWebServerRequest *request);
-    virtual void pathNotFound(AsyncWebServerRequest *request);
-    virtual void sendDataFile(AsyncWebServerRequest *request);
+    AsyncStaticWebHandler(const String& path, Dir const& dir, const char* cache_control);
 
-  public:
-    AsyncStaticWebHandler(const String& uri, Dir const& dir, const char* cache_control);
-
-    virtual bool canHandle(AsyncWebServerRequest *request) override;
+    virtual bool _isInterestingHeader(String const& key) override;
 
     AsyncStaticWebHandler& setCacheControl(const char* cache_control);
     AsyncStaticWebHandler& lookupGZ(bool gzLookup, bool gzFirst);
     AsyncStaticWebHandler& setIndexFile(const char* filename);
 
-    AsyncStaticWebHandler& onIndex(ArRequestHandlerFunction const& onIndex);
-    AsyncStaticWebHandler& onPathNotFound(ArRequestHandlerFunction const& onPathNotFound);
-    AsyncStaticWebHandler& onIndexNotFound(ArRequestHandlerFunction const& onIndexNotFound);
+    virtual void _handleRequest(AsyncWebRequest &request) override;
+
+#ifdef HANDLE_REQUEST_CONTENT
+    virtual void _handleBody(AsyncWebRequest &request, size_t index, uint8_t *buf,
+                            size_t size, size_t total) override {
+      // Do not expect request body
+      request.send(400);
+    }
+#endif
 };
 
 class AsyncCallbackWebHandler: public AsyncPathURIWebHandler {
-  protected:
-    WebRequestMethodComposite _method;
-    ArRequestHandlerFunction _onRequest;
-    ArUploadHandlerFunction _onUpload;
-    ArBodyHandlerFunction _onBody;
-
   public:
-    AsyncCallbackWebHandler(const String& uri = String(), WebRequestMethodComposite method = HTTP_ANY)
-    : AsyncPathURIWebHandler(uri, method), _onRequest(NULL), _onUpload(NULL), _onBody(NULL) {}
+    StringArray interestedHeaders;
+    ArRequestHandlerFunction onRequest;
+#ifdef HANDLE_REQUEST_CONTENT
+    ArBodyHandlerFunction onBody;
+#endif
 
-    void onRequest(ArRequestHandlerFunction const& fn){ _onRequest = fn; }
-    void onUpload(ArUploadHandlerFunction const& fn){ _onUpload = fn; }
-    void onBody(ArBodyHandlerFunction const& fn){ _onBody = fn; }
+    AsyncCallbackWebHandler(const String& path, WebRequestMethodComposite method = HTTP_ANY)
+    : AsyncPathURIWebHandler(path, method) {}
 
-    virtual bool canHandle(AsyncWebServerRequest *request) override {
-      if (AsyncPathURIWebHandler::canHandle(request)) {
-        if (!_requestHandler) request->addInterestingHeader("ANY");
-        else _requestHandler = _onRequest;
-        return true;
-      }
-      return false;
+    virtual bool _isInterestingHeader(String const& key) override
+    { return interestedHeaders.containsIgnoreCase(key); }
+
+    virtual void _handleRequest(AsyncWebRequest &request) override {
+      if (onRequest) onRequest(request);
+      else request.send(500);
     }
 
-    virtual void handleUpload(AsyncWebServerRequest *request, const String& filename, size_t index,
-                              uint8_t *data, size_t len, bool final) override final {
-      if(_onUpload)
-        _onUpload(request, filename, index, data, len, final);
+#ifdef HANDLE_REQUEST_CONTENT
+    virtual void _handleBody(AsyncWebRequest &request, size_t index, uint8_t *buf,
+                            size_t size, size_t total) override {
+      if (onBody) onBody(request, index, buf, size, total);
+      else request.send(500);
     }
-    virtual void handleBody(AsyncWebServerRequest *request, uint8_t *data,
-                            size_t len, size_t index, size_t total) override final {
-      if(_onBody)
-        _onBody(request, data, len, index, total);
-    }
+#endif
 };
 
 #endif /* ASYNCWEBSERVERHANDLERIMPL_H_ */
