@@ -66,14 +66,14 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
       if (!running) {
         running = true;
         os_timer_arm(&timer, resolution, true);
-        ESPWS_DEBUGVV("<Scheduler> Start\n");
+        ESPWS_DEBUG("<Scheduler> Start\n");
       }
     }
     void stopTimer() {
       if (running) {
         running = false;
         os_timer_disarm(&timer);
-        ESPWS_DEBUGVV("<Scheduler> Stop\n");
+        ESPWS_DEBUG("<Scheduler> Stop\n");
       }
     }
 
@@ -90,7 +90,7 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 
     void schedule(AsyncWebRequest *req) {
       if (append(req) == 0) startTimer();
-      ESPWS_DEBUGVV("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+      ESPWS_DEBUG("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
     }
 
     void deschedule(AsyncWebRequest *req) {
@@ -101,11 +101,11 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
           _cur = _cur->next;
         return false;
       });
-      ESPWS_DEBUGVV("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+      ESPWS_DEBUG("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
     }
 
     void run(void) {
-      if (!statsCnt++) ESPWS_DEBUGVV("<Scheduler> Processing (Heap=%d, Queue=%d)\n", ESP.getFreeHeap(), _count);
+      if (!statsCnt++) ESPWS_DEBUG("<Scheduler> Processing (Heap=%d, Queue=%d)\n", ESP.getFreeHeap(), _count);
       bool progress = true;
       while (ESP.getFreeHeap() > MIN_FREE_HEAP) {
         if (!_cur) {
@@ -114,7 +114,7 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
           _cur = _head;
         }
         if (_cur) {
-          size_t resShare = (ESP.getFreeHeap()-MIN_FREE_HEAP)/2;
+          size_t resShare = ESP.getFreeHeap()-MIN_FREE_HEAP;
           // ASSUMPTION: TCP_MSS is a reasonably small value compared with MIN_FREE_HEAP
           if (_cur->value()->_onSched(std::max(resShare,(size_t)TCP_MSS))) progress = true;
           _cur = _cur->next;
