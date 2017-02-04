@@ -36,7 +36,7 @@ class AsyncPathURIWebHandler: public AsyncWebHandler {
     WebRequestMethodComposite const method;
 
     AsyncPathURIWebHandler(const String& p, WebRequestMethodComposite m)
-    : path(p[0]=='/'? p : '/' + p), method(m) {}
+    : path((p[0]=='/'? "":"/")+p+(p.end()[-1]=='/'? "":"/")), method(m) {}
 
     virtual bool _canHandle(AsyncWebRequest const &request) override;
     virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;
