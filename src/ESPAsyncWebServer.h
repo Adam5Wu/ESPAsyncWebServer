@@ -129,6 +129,7 @@ typedef enum {
   REQUEST_BODY,
   REQUEST_RECEIVED,
   REQUEST_RESPONSE,
+  REQUEST_REPLYING,
   REQUEST_ERROR
 } WebServerRequestState;
 
@@ -172,7 +173,6 @@ class AsyncWebRequest {
     LinkedList<AsyncWebHeader> _headers;
     LinkedList<AsyncWebQuery> _queries;
 
-    void _onPoll();
     void _onAck(size_t len, uint32_t time);
     void _onError(int8_t error);
     void _onTimeout(uint32_t time);
@@ -192,6 +192,8 @@ class AsyncWebRequest {
 
     AsyncWebRequest(AsyncWebServer const &server, AsyncClient &client);
     ~AsyncWebRequest();
+
+    bool _onSched(size_t resShare);
 
     uint8_t version() const { return _version; }
     WebRequestMethodComposite method() const { return _method; }
@@ -291,7 +293,8 @@ class AsyncWebResponse {
     virtual void addHeader(const char *name, const char *value) = 0;
 
     virtual void _respond(AsyncWebRequest &request);
-    virtual size_t _ack(size_t len, uint32_t time) = 0;
+    virtual void _ack(size_t len, uint32_t time) = 0;
+    virtual size_t _process(size_t resShare) = 0;
 
     inline void MUSTNOTSTART(void) const { while (_started()) panic(); }
     inline bool _started(void) const { return _state > RESPONSE_SETUP; }

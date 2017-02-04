@@ -181,6 +181,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
         // It is not a file, nor dir
         ESPWS_DEBUGVV("[%s] File not found\n", request._remoteIdent.c_str());
         _onPathNotFound(request);
+        return;
       }
     }
   }

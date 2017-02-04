@@ -27,7 +27,7 @@ extern "C" {
   #include "user_interface.h"
 }
 
-#define MIN_FREE_HEAP  8192
+#define MIN_FREE_HEAP 4096
 
 static String _PlatformAnnotation;
 
@@ -147,7 +147,8 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
   // ASSUMPTION: status line is ALWAYS shorter than sendbuf
   _sendbuf = (uint8_t*)_status.begin();
   _bufLen = _status.length();
-  _ack(0, 0);
+  
+  if (ESP.getFreeHeap() > MIN_FREE_HEAP) _process(TCP_MSS);
 }
 
 void AsyncSimpleResponse::_assembleHead(void) {
@@ -183,35 +184,36 @@ void AsyncSimpleResponse::addHeader(const char *name, const char *value) {
   _headers.concat("\r\n",2);
 }
 
-size_t AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
+void AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
   _inFlightLength -= len;
+  if (_waitack() && !_inFlightLength) {
+    // All data acked, now we are done!
+    ESPWS_DEBUGV("[%s] All data acked, finalizing\n", _request->_remoteIdent.c_str());
+    _state = RESPONSE_END;
+    _requestCleanup();
+  }
+}
+
+size_t AsyncSimpleResponse::_process(size_t resShare) {
   size_t written = 0;
-  while (_sending() && (ESP.getFreeHeap() > MIN_FREE_HEAP) && _prepareSendBuf()) {
+  while (_sending() && resShare && _prepareSendBuf(resShare)) {
     size_t sendLen = _request->_client.write((const char*)&_sendbuf[_bufSent], _bufLen);
     if (sendLen) {
       ESPWS_DEBUGVV("[%s] Sent out %d of %d\n", _request->_remoteIdent.c_str(), sendLen,_bufLen);
       written += sendLen;
       _bufSent += sendLen;
+      resShare -= sendLen;
       if (!(_bufLen-= sendLen))
         _releaseSendBuf();
     } else break;
   }
   _inFlightLength += written;
-  if (_waitack() && !_inFlightLength) {
-    // All data acked, now we are done!
-    ESPWS_DEBUGV("[%s] All data acked\n", _request->_remoteIdent.c_str());
-    _state = RESPONSE_END;
-  }
-  if (_finished()) {
-    ESPWS_DEBUGV("[%s] Finalizing connection\n", _request->_remoteIdent.c_str());
-    _requestCleanup();
-  }
   return written;
 }
 
-bool AsyncSimpleResponse::_prepareSendBuf() {
+bool AsyncSimpleResponse::_prepareSendBuf(size_t resShare) {
   while (!_sendbuf) {
-    size_t space = _request->_client.space();
+    size_t space = std::min(_request->_client.space(), resShare);
     if (space < TCP_MSS/4) {
       // Send buffer too small, wait for it to grow bigger
       ESPWS_DEBUGVV("[%s] Wait for more send buffer\n", _request->_remoteIdent.c_str());
@@ -392,7 +394,6 @@ AsyncFileResponse::AsyncFileResponse(File const& content, const String& path, co
   , _content(content)
 {
   if (_content) {
-    ESPWS_DEBUGV("[%s] Response file '%s'\n", _request->_remoteIdent.c_str(), path.c_str());
     _contentLength = _content.size();
 
     if (contentType.empty()) {
@@ -419,9 +420,6 @@ AsyncFileResponse::AsyncFileResponse(File const& content, const String& path, co
       else if (extension == "zip") _contentType = "application/zip";
       else if (extension == "gz") _contentType = "application/x-gzip";
       else _contentType = "application/octet-stream";
-
-      ESPWS_DEBUGVV("[%s] Extension '%s', MIME '%s'\n", _request->_remoteIdent.c_str(),
-                    extension.c_str(), _contentType.c_str());
     }
 
     if (download) {

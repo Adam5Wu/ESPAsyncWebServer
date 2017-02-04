@@ -39,7 +39,7 @@ class AsyncSimpleResponse: public AsyncWebResponse {
 
     virtual void _assembleHead(void);
 
-    virtual bool _prepareSendBuf(void);
+    virtual bool _prepareSendBuf(size_t resShare);
     virtual bool _prepareHeadSendBuf(size_t space);
     // We do not support content at this stage, but since the concept of content is important
     //  we land the concept here, but only implement null content
@@ -55,8 +55,9 @@ class AsyncSimpleResponse: public AsyncWebResponse {
     ~AsyncSimpleResponse() { _releaseSendBuf(); }
 
     virtual void addHeader(const char *name, const char *value) override;
-    void _respond(AsyncWebRequest &request);
-    size_t _ack(size_t len, uint32_t time);
+    virtual void _respond(AsyncWebRequest &request) override;
+    virtual void _ack(size_t len, uint32_t time) override;
+    virtual size_t _process(size_t resShare) override;
 };
 
 class AsyncBasicResponse: public AsyncSimpleResponse {

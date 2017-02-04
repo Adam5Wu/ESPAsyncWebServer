@@ -28,6 +28,7 @@ class LinkedListNode {
     T _value;
   public:
     LinkedListNode<T>* next;
+
     LinkedListNode(const T &val): _value(val), next(NULL) {}
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
     LinkedListNode(T &&val): _value(std::move(val)), next(NULL) {}
@@ -58,7 +59,7 @@ class LinkedList {
     typedef std::function<void(const T&)> OnRemove;
     typedef std::function<bool(const T&)> Predicate;
 
-  private:
+  protected:
     ItemType *_head, *_tail;
     size_t _count;
     OnRemove _onRemove;
@@ -67,14 +68,14 @@ class LinkedList {
       it->next = _head;
       _head = it;
       if (!_tail) _tail = it;
-      _count++;
+      return _count++;
     }
 
     size_t _addtail(ItemType *it) {
       if (_tail) _tail->next = it;
       _tail = it;
       if (!_head) _head = it;
-      _count++;
+      return _count++;
     }
 
     typedef std::function<bool(ItemType *)> EnumStep;
@@ -84,7 +85,7 @@ class LinkedList {
     }
   public:
     LinkedList(OnRemove const &onRemove) : _head(NULL), _tail(NULL), _count(0), _onRemove(onRemove) {}
-    ~LinkedList() { clear(); }
+    virtual ~LinkedList() { clear(); }
 
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
     LinkedList(LinkedList &&src)
@@ -97,13 +98,13 @@ class LinkedList {
     ConstIterator begin() const { return ConstIterator(_head); }
     ConstIterator end() const { return ConstIterator(NULL); }
 
-    size_t prepend(const T& t) { _addhead(new ItemType(t)); }
+    size_t prepend(const T& t) { return _addhead(new ItemType(t)); }
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
-    size_t prepend(T && t) { _addhead(new ItemType(std::move(t))); }
+    size_t prepend(T && t) { return _addhead(new ItemType(std::move(t))); }
 #endif
-    size_t append(const T& t) { _addtail(new ItemType(t)); }
+    size_t append(const T& t) { return _addtail(new ItemType(t)); }
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
-    size_t append(T && t) { _addtail(new ItemType(std::move(t))); }
+    size_t append(T && t) { return _addtail(new ItemType(std::move(t))); }
 #endif
 
     size_t length() const { return _count; }
@@ -152,7 +153,7 @@ class LinkedList {
           if (i++ == N) {
             if (prev) prev->next = it->next;
             else _head = it->next;
-            if (!_head) _tail = NULL;
+            if (_tail == it) _tail = prev;
             _count--;
 
             bool handoff = takeown && takeown(it->value());

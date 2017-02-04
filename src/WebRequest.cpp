@@ -26,6 +26,13 @@
 #define os_strlen strlen
 #endif
 
+#define MIN_FREE_HEAP 4096
+
+extern "C" {
+  #include "lwip/opt.h"
+  #include "user_interface.h"
+}
+
 String urlDecode(char *buf) {
   char temp[] = "xx";
 
@@ -46,6 +53,79 @@ String urlDecode(char *buf) {
   }
   return Ret;
 }
+
+class RequestScheduler : private LinkedList<AsyncWebRequest*> {
+  protected:
+    uint32_t resolution = 50;
+    os_timer_t timer = {0};
+    bool running = false;
+
+    ItemType *_cur = NULL;
+
+    void startTimer() {
+      if (!running) {
+        running = true;
+        os_timer_arm(&timer, resolution, true);
+        ESPWS_DEBUGVV("<Scheduler> Start\n");
+      }
+    }
+    void stopTimer() {
+      if (running) {
+        running = false;
+        os_timer_disarm(&timer);
+        ESPWS_DEBUGVV("<Scheduler> Stop\n");
+      }
+    }
+
+    static void timerThunk(void *arg)
+    { ((RequestScheduler*)arg)->run(); }
+
+    uint8_t statsCnt = 0;
+
+  public:
+    RequestScheduler() : LinkedList(NULL) {
+      os_timer_setfn(&timer, &RequestScheduler::timerThunk, this);
+    }
+    ~RequestScheduler() { stopTimer(); }
+
+    void schedule(AsyncWebRequest *req) {
+      if (append(req) == 0) startTimer();
+      ESPWS_DEBUGVV("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+    }
+
+    void deschedule(AsyncWebRequest *req) {
+      remove_nth_if(0, [&](AsyncWebRequest *x) {
+        return req == x;
+      }, [&](AsyncWebRequest *x) {
+        if (_cur && _cur->value() == x)
+          _cur = _cur->next;
+        return false;
+      });
+      ESPWS_DEBUGVV("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+    }
+
+    void run(void) {
+      if (!statsCnt++) ESPWS_DEBUGVV("<Scheduler> Processing (Heap=%d, Queue=%d)\n", ESP.getFreeHeap(), _count);
+      bool progress = true;
+      while (ESP.getFreeHeap() > MIN_FREE_HEAP) {
+        if (!_cur) {
+          if (progress) progress = false;
+          else break;
+          _cur = _head;
+        }
+        if (_cur) {
+          size_t resShare = (ESP.getFreeHeap()-MIN_FREE_HEAP)/2;
+          // ASSUMPTION: TCP_MSS is a reasonably small value compared with MIN_FREE_HEAP
+          if (_cur->value()->_onSched(std::max(resShare,(size_t)TCP_MSS))) progress = true;
+          _cur = _cur->next;
+        } else {
+          if (!statsCnt) stopTimer();
+          break;
+        }
+      }
+    }
+
+} Scheduler;
 
 AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
   : _server(s)
@@ -72,6 +152,7 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
   }, this);
   c.onAck([](void *r, AsyncClient* c, size_t len, uint32_t time){
     ((AsyncWebRequest*)r)->_onAck(len, time);
+    Scheduler.run();
   }, this);
   c.onDisconnect([](void *r, AsyncClient* c){
     ((AsyncWebRequest*)r)->_onDisconnect();
@@ -83,14 +164,12 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
   c.onData([](void *r, AsyncClient* c, void *buf, size_t len){
     ((AsyncWebRequest*)r)->_onData(buf, len);
   }, this);
-  c.onPoll([](void *r, AsyncClient* c){
-    ((AsyncWebRequest*)r)->_onPoll();
-  }, this);
 }
 
 AsyncWebRequest::~AsyncWebRequest(){
   delete _parser;
   delete _response;
+  Scheduler.deschedule(this);
 }
 
 const char * AsyncWebRequest::methodToString() const {
@@ -118,11 +197,14 @@ ESPWS_DEBUGDO(const char* AsyncWebRequest::_stateToString(void) const {
   }
 })
 
-void AsyncWebRequest::_onPoll(){
-  if (_response && _client.canSend() && !_response->_finished()) {
-    ESPWS_DEBUGVV("[%s] POLL\n", _remoteIdent.c_str());
-    _response->_ack(0, 0);
+bool AsyncWebRequest::_onSched(size_t resShare){
+  while (!_response || _response->_finished()) panic();
+
+  if (_client.canSend()) {
+    ESPWS_DEBUGVV("[%s] SCHED %d\n", _remoteIdent.c_str(), resShare);
+    return _response->_process(resShare) > 0;
   }
+  return false;
 }
 
 void AsyncWebRequest::_onAck(size_t len, uint32_t time){
@@ -184,9 +266,10 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
     return;
   }
 
-  if (_response) {
+  if (_state == REQUEST_RESPONSE) {
     _client.setRxTimeout(0);
     _response->_respond(*this);
+    Scheduler.schedule(this);
   }
 }
 
