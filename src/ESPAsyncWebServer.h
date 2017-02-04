@@ -91,10 +91,10 @@ class AsyncWebHeader {
     StringArray values;
 
     AsyncWebHeader(const String& n, const String& v)
-    : name(n) { values.add(v); }
+    : name(n) { values.append(v); }
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
     AsyncWebHeader(String&& n, String&& v)
-    : name(std::move(n)) { values.add(std::move(v)); }
+    : name(std::move(n)) { values.append(std::move(v)); }
 #endif
 };
 
@@ -320,7 +320,7 @@ class AsyncWebFilterable {
     AsyncWebFilterable(void) : _filters(NULL) {}
     virtual ~AsyncWebFilterable() {}
 
-    void addFilter(ArRequestFilterFunction const &fn) { _filters.add(fn); }
+    void addFilter(ArRequestFilterFunction const &fn) { _filters.append(fn); }
     bool _filter(AsyncWebRequest &request) const {
       return _filters.get_if([&](ArRequestFilterFunction const& f){
         return !f(request);
@@ -428,12 +428,12 @@ class AsyncWebServer {
     void beginSecure(const char *cert, const char *private_key_file, const char *password);
 #endif
 
-    AsyncWebRewrite* addRewrite(AsyncWebRewrite* rewrite) { return _rewrites.add(rewrite), rewrite; }
+    AsyncWebRewrite* addRewrite(AsyncWebRewrite* rewrite) { return _rewrites.append(rewrite), rewrite; }
     bool removeRewrite(AsyncWebRewrite* rewrite) { return _rewrites.remove(rewrite); }
     AsyncWebRewrite* rewrite(const char* from, const char* to)
     { return addRewrite(new AsyncWebSimpleRewrite(from, to)); }
 
-    AsyncWebHandler* addHandler(AsyncWebHandler* handler) { return _handlers.add(handler), handler; }
+    AsyncWebHandler* addHandler(AsyncWebHandler* handler) { return _handlers.append(handler), handler; }
     bool removeHandler(AsyncWebHandler* handler) { return _handlers.remove(handler); }
 
     AsyncCallbackWebHandler& on(const char* uri, ArRequestHandlerFunction const& onRequest)

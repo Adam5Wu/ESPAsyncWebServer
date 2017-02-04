@@ -220,7 +220,7 @@ void AsyncWebRequest::_parseQueries(char *buf){
     if (*value) *value++ = '\0';
 
     ESPWS_DEBUGVV("[%s] Query [%s] = '%s'\n", _remoteIdent.c_str(), name, value);
-    _queries.add(AsyncWebQuery(name, value));
+    _queries.append(AsyncWebQuery(name, value));
   }
 }
 

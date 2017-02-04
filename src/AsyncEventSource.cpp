@@ -180,7 +180,7 @@ void AsyncEventSource::onConnect(ArEventHandlerFunction cb){
 }
 
 void AsyncEventSource::_addClient(AsyncEventSourceClient * client){
-  _clients.add(client);
+  _clients.append(client);
   if(_connectcb)
     _connectcb(client);
 }

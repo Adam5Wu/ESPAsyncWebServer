@@ -309,7 +309,7 @@ void AsyncWebSocketClient::_queueMessage(AsyncWebSocketMessage *dataMessage){
     delete dataMessage;
     return;
   }
-  _messageQueue.add(dataMessage);
+  _messageQueue.append(dataMessage);
   if(_client.canSend())
     _runQueue();
 }
@@ -317,7 +317,7 @@ void AsyncWebSocketClient::_queueMessage(AsyncWebSocketMessage *dataMessage){
 void AsyncWebSocketClient::_queueControl(AsyncWebSocketControl *controlMessage){
   if(controlMessage == NULL)
     return;
-  _controlQueue.add(controlMessage);
+  _controlQueue.append(controlMessage);
   if(_client.canSend())
     _runQueue();
 }
@@ -574,7 +574,7 @@ void AsyncWebSocket::_handleEvent(AsyncWebSocketClient * client, AwsEventType ty
 }
 
 void AsyncWebSocket::_addClient(AsyncWebSocketClient * client){
-  _clients.add(client);
+  _clients.append(client);
 }
 
 void AsyncWebSocket::_handleDisconnect(AsyncWebSocketClient * client){

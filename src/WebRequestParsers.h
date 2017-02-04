@@ -56,8 +56,8 @@ class AsyncWebParser {
       AsyncWebHeader* Header = _request._headers.get_if([&](AsyncWebHeader const &h){
         return key.equalsIgnoreCase(h.name);
       });
-      if (Header) Header->values.add(std::move(value));
-      else _request._headers.add(AsyncWebHeader(std::move(key), std::move(value)));
+      if (Header) Header->values.append(std::move(value));
+      else _request._headers.append(AsyncWebHeader(std::move(key), std::move(value)));
     }
 
     ESPWS_DEBUGDO(const char* __strState(void) { return _request._stateToString(); })

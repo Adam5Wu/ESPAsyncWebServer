@@ -59,44 +59,51 @@ class LinkedList {
     typedef std::function<bool(const T&)> Predicate;
 
   private:
-    ItemType* _root;
+    ItemType *_head, *_tail;
     size_t _count;
     OnRemove _onRemove;
 
-    size_t _add(ItemType *it) {
-      if(!_root){
-        _root = it;
-      } else {
-        auto i = _root;
-        while(i->next) i = i->next;
-        i->next = it;
-      }
+    size_t _addhead(ItemType *it) {
+      it->next = _head;
+      _head = it;
+      if (!_tail) _tail = it;
+      _count++;
+    }
+
+    size_t _addtail(ItemType *it) {
+      if (_tail) _tail->next = it;
+      _tail = it;
+      if (!_head) _head = it;
       _count++;
     }
 
     typedef std::function<bool(ItemType *)> EnumStep;
     void enumerate(EnumStep const &enumstep) const {
-      auto it = _root;
+      auto it = _head;
       while(it && enumstep(it)) it = it->next;
     }
   public:
-    LinkedList(OnRemove const &onRemove) : _root(NULL), _count(0), _onRemove(onRemove) {}
+    LinkedList(OnRemove const &onRemove) : _head(NULL), _tail(NULL), _count(0), _onRemove(onRemove) {}
     ~LinkedList() { clear(); }
 
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
     LinkedList(LinkedList &&src)
-    : _root(src._root), _count(src._count), _onRemove(src._onRemove)
-    { src._root = NULL; }
+    : _head(src._head), _count(src._count), _onRemove(src._onRemove)
+    { src._head = NULL; }
 #endif
 
-    bool isEmpty() const { return _root == NULL; }
-    T& front() const { return _root->value(); }
-    ConstIterator begin() const { return ConstIterator(_root); }
+    bool isEmpty() const { return _head == NULL; }
+    T& front() const { return _head->value(); }
+    ConstIterator begin() const { return ConstIterator(_head); }
     ConstIterator end() const { return ConstIterator(NULL); }
 
-    size_t add(const T& t) { _add(new ItemType(t)); }
+    size_t prepend(const T& t) { _addhead(new ItemType(t)); }
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
-    size_t add(T && t) { _add(new ItemType(std::move(t))); }
+    size_t prepend(T && t) { _addhead(new ItemType(std::move(t))); }
+#endif
+    size_t append(const T& t) { _addtail(new ItemType(t)); }
+#ifdef __GXX_EXPERIMENTAL_CXX0X__
+    size_t append(T && t) { _addtail(new ItemType(std::move(t))); }
 #endif
 
     size_t length() const { return _count; }
@@ -136,7 +143,7 @@ class LinkedList {
     bool remove_if(Predicate const &predicate)
     { return remove_nth_if(0, predicate); }
 
-    bool remove_nth_if(size_t N, Predicate const &predicate) {
+    bool remove_nth_if(size_t N, Predicate const &predicate, Predicate const &takeown=NULL) {
       bool Ret = false;
       ItemType* prev = NULL;
       size_t i = 0;
@@ -144,8 +151,12 @@ class LinkedList {
         if (!predicate || predicate(it->value()))
           if (i++ == N) {
             if (prev) prev->next = it->next;
-            else _root = it->next;
-            if (_onRemove) _onRemove(it->value());
+            else _head = it->next;
+            if (!_head) _tail = NULL;
+            _count--;
+
+            bool handoff = takeown && takeown(it->value());
+            if (!handoff && _onRemove) _onRemove(it->value());
             delete it;
 
             Ret = true;
@@ -157,8 +168,11 @@ class LinkedList {
       return Ret;
     }
 
+    bool pop_front(Predicate const &takeown)
+    { return remove_nth_if(0, NULL, takeown); }
+
     void clear(){
-      if (_root) {
+      if (_head) {
         ItemType* prev = NULL;
         enumerate([&](ItemType *it){
           if (prev) {
@@ -172,7 +186,8 @@ class LinkedList {
           if (_onRemove) _onRemove(prev->value());
           delete prev;
         }
-        _root = NULL;
+        _head = _tail = NULL;
+        _count = 0;
       }
     }
 };
