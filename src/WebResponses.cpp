@@ -34,8 +34,10 @@ static String _PlatformAnnotation;
 String const& GetPlatformAnnotation(void) {
   if (_PlatformAnnotation.empty()) {
 #if defined(ESP8266)
-    _PlatformAnnotation.concat("ESP8266 #",9);
+    _PlatformAnnotation.concat("ESP8266 #", 9);
     _PlatformAnnotation.concat(system_get_chip_id(),16);
+    _PlatformAnnotation.concat(" NonOS SDK ",11);
+    _PlatformAnnotation.concat(system_get_sdk_version());
 #endif
   }
   return _PlatformAnnotation;
@@ -162,32 +164,23 @@ void AsyncSimpleResponse::_assembleHead(void) {
   _status.concat(_code);
   _status.concat(' ');
   _status.concat(_responseCodeToString());
-  _status.concat('\r');
-  _status.concat('\n');
-
   // Generate server header
-  _status.concat("Server: ",8);
+  _status.concat("\r\nServer: ",10);
   _status.concat(_request->_server.VERTOKEN);
-  _status.concat(' ');
-  _status.concat('(');
+  _status.concat(" (",2);
   _status.concat(GetPlatformAnnotation());
-  _status.concat(')');
-  _status.concat('\r');
-  _status.concat('\n');
+  _status.concat(")\r\n",3);
 
-  _headers.concat('\r');
-  _headers.concat('\n');
+  _headers.concat("\r\n",2);
 }
 
 void AsyncSimpleResponse::addHeader(const char *name, const char *value) {
   MUSTNOTSTART();
 
   _headers.concat(name);
-  _headers.concat(':');
-  _headers.concat(' ');
+  _headers.concat(": ",2);
   _headers.concat(value);
-  _headers.concat('\r');
-  _headers.concat('\n');
+  _headers.concat("\r\n",2);
 }
 
 size_t AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
