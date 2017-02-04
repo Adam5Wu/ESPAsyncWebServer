@@ -34,10 +34,12 @@ static String _PlatformAnnotation;
 String const& GetPlatformAnnotation(void) {
   if (_PlatformAnnotation.empty()) {
 #if defined(ESP8266)
-    _PlatformAnnotation.concat("ESP8266 #", 9);
-    _PlatformAnnotation.concat(system_get_chip_id(),16);
-    _PlatformAnnotation.concat(" NonOS SDK ",11);
+    _PlatformAnnotation.concat("ESP8266 NonOS-", 14);    
     _PlatformAnnotation.concat(system_get_sdk_version());
+    _PlatformAnnotation.concat(" ID#", 4);
+    _PlatformAnnotation.concat(system_get_chip_id(), 16);
+    _PlatformAnnotation.replace('(','[');
+    _PlatformAnnotation.replace(')',']');
 #endif
   }
   return _PlatformAnnotation;
