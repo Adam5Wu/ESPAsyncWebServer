@@ -177,6 +177,7 @@ class AsyncChunkedResponse: public AsyncBufferedResponse {
 
   protected:
     virtual void _assembleHead(void) override;
+    virtual bool _prepareContentSendBuf(size_t space) override;
     virtual size_t _fillBuffer(uint8_t *buf, size_t maxLen) override;
 
   public:

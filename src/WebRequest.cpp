@@ -26,11 +26,12 @@
 #define os_strlen strlen
 #endif
 
-#define MIN_FREE_HEAP 4096
-
 extern "C" {
   #include "lwip/opt.h"
-  #include "user_interface.h"
+	#include "lwip/inet.h"
+	#include "lwip/err.h"
+	#include "lwip/app/espconn.h"
+	#include "user_interface.h"
 }
 
 String urlDecode(char *buf) {
@@ -56,7 +57,15 @@ String urlDecode(char *buf) {
 
 class RequestScheduler : private LinkedList<AsyncWebRequest*> {
   protected:
-    uint32_t resolution = 50;
+    uint32_t const resolution = 50;
+    uint8_t const shareFactor = 2;
+
+    size_t const schedShare = espconn_tcp_get_wnd()*TCP_MSS;
+    // Minimal heap available before scheduling a response processing
+    // 4K = Flash physical sector size
+    // 1K = Misc heap uses
+    size_t const minFreeHeap = 4096+1024+schedShare;
+
     os_timer_t timer = {0};
     bool running = false;
 
@@ -66,14 +75,14 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
       if (!running) {
         running = true;
         os_timer_arm(&timer, resolution, true);
-        ESPWS_DEBUG("<Scheduler> Start\n");
+        ESPWS_DEBUGVV("<Scheduler> Start\n");
       }
     }
     void stopTimer() {
       if (running) {
         running = false;
         os_timer_disarm(&timer);
-        ESPWS_DEBUG("<Scheduler> Stop\n");
+        ESPWS_DEBUGVV("<Scheduler> Stop\n");
       }
     }
 
@@ -90,7 +99,7 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 
     void schedule(AsyncWebRequest *req) {
       if (append(req) == 0) startTimer();
-      ESPWS_DEBUG("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+      ESPWS_DEBUGVV("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
     }
 
     void deschedule(AsyncWebRequest *req) {
@@ -101,22 +110,18 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
           _cur = _cur->next;
         return false;
       });
-      ESPWS_DEBUG("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+      ESPWS_DEBUGVV("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
     }
 
     void run(void) {
-      if (!statsCnt++) ESPWS_DEBUG("<Scheduler> Processing (Heap=%d, Queue=%d)\n", ESP.getFreeHeap(), _count);
-      bool progress = true;
-      while (ESP.getFreeHeap() > MIN_FREE_HEAP) {
-        if (!_cur) {
-          if (progress) progress = false;
-          else break;
-          _cur = _head;
-        }
+      int _procCnt = 0;
+      size_t freeHeap = ESP.getFreeHeap();
+      while (_procCnt++ <= _count && freeHeap > minFreeHeap) {
+        if (!statsCnt++) ESPWS_DEBUGVV("<Scheduler> Processing (Heap=%d, Queue=%d)\n", freeHeap, _count);
+        if (!_cur) _cur = _head;
         if (_cur) {
-          size_t resShare = ESP.getFreeHeap()-MIN_FREE_HEAP;
-          // ASSUMPTION: TCP_MSS is a reasonably small value compared with MIN_FREE_HEAP
-          if (_cur->value()->_onSched(std::max(resShare,(size_t)TCP_MSS))) progress = true;
+          if (_cur->value()->_onSched(schedShare))
+            freeHeap = ESP.getFreeHeap();
           _cur = _cur->next;
         } else {
           if (!statsCnt) stopTimer();

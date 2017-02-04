@@ -34,12 +34,12 @@ static String _PlatformAnnotation;
 String const& GetPlatformAnnotation(void) {
   if (_PlatformAnnotation.empty()) {
 #if defined(ESP8266)
-    _PlatformAnnotation.concat("ESP8266 NonOS-", 14);		
+    _PlatformAnnotation.concat("ESP8266 NonOS-", 14);
     _PlatformAnnotation.concat(system_get_sdk_version());
     _PlatformAnnotation.concat(" ID#", 4);
     _PlatformAnnotation.concat(system_get_chip_id(), 16);
-		_PlatformAnnotation.replace('(','[');
-		_PlatformAnnotation.replace(')',']');
+    _PlatformAnnotation.replace('(','[');
+    _PlatformAnnotation.replace(')',']');
 #endif
   }
   return _PlatformAnnotation;
@@ -149,8 +149,8 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
   // ASSUMPTION: status line is ALWAYS shorter than sendbuf
   _sendbuf = (uint8_t*)_status.begin();
   _bufLen = _status.length();
-  
-  if (ESP.getFreeHeap() > MIN_FREE_HEAP) _process(TCP_MSS);
+  // We want to get the head part out ASAP
+  _process(_bufLen+_headers.length());
 }
 
 void AsyncSimpleResponse::_assembleHead(void) {
@@ -197,28 +197,35 @@ void AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
 }
 
 size_t AsyncSimpleResponse::_process(size_t resShare) {
+  ESPWS_DEBUGVV("[%s] Processing share %d\n", _request->_remoteIdent.c_str(), resShare);
   size_t written = 0;
   while (_sending() && resShare && _prepareSendBuf(resShare)) {
     size_t sendLen = _request->_client.write((const char*)&_sendbuf[_bufSent], _bufLen);
     if (sendLen) {
-      ESPWS_DEBUG("[%s] Sent out %d of %d\n", _request->_remoteIdent.c_str(), sendLen,_bufLen);
+      ESPWS_DEBUGVV("[%s] Sent out %d of %d\n", _request->_remoteIdent.c_str(), sendLen, _bufLen);
       written += sendLen;
       _bufSent += sendLen;
       resShare -= sendLen;
       if (!(_bufLen-= sendLen))
         _releaseSendBuf();
-    } else break;
+    } else {
+      ESPWS_DEBUGVV("[%s] Pipe congested, %d share left\n", _request->_remoteIdent.c_str(), resShare);
+      break;
+    }
   }
-  _inFlightLength += written;
+  if (written) {
+    _inFlightLength += written;
+    ESPWS_DEBUGVV("[%s] In-flight %d\n", _request->_remoteIdent.c_str(), _inFlightLength);
+  }
   return written;
 }
 
 bool AsyncSimpleResponse::_prepareSendBuf(size_t resShare) {
   while (!_sendbuf) {
     size_t space = std::min(_request->_client.space(), resShare);
-    if (space < TCP_MSS/4) {
+    if (space < resShare/2 && space < TCP_MSS/4) {
       // Send buffer too small, wait for it to grow bigger
-      ESPWS_DEBUGVV("[%s] Wait for more send buffer\n", _request->_remoteIdent.c_str());
+      ESPWS_DEBUGVV("[%s] Wait for larger send buffer\n", _request->_remoteIdent.c_str());
       break;
     }
     _bufSent = 0;
@@ -547,13 +554,17 @@ void AsyncChunkedResponse::_assembleHead(void){
   AsyncBasicResponse::_assembleHead();
 }
 
+bool AsyncChunkedResponse::_prepareContentSendBuf(size_t space) {
+  if (space <= 32) return false; // Buffer too small to worth the effort
+  if (space > 0x2000) space = 0x2000;
+
+  return AsyncBufferedResponse::_prepareContentSendBuf(space);
+}
+
 static const uint8_t HexLookup[] =
 { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
 
 size_t AsyncChunkedResponse::_fillBuffer(uint8_t *buf, size_t maxLen){
-  if (maxLen <= 32) return 0; // Buffer too small to worth the effort
-  if (maxLen > 0x2000+8) maxLen = 0x2000+8;
-
   size_t chunkLen = _callback(buf+6, maxLen-8, _bufPrepared-(8*_chunkCnt));
   // Encapsulate chunk
   buf[0] = HexLookup[(chunkLen >> 12) & 0xF];
