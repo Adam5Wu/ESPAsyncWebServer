@@ -84,13 +84,14 @@ class LinkedList {
       while(it && enumstep(it)) it = it->next;
     }
   public:
-    LinkedList(OnRemove const &onRemove) : _head(NULL), _tail(NULL), _count(0), _onRemove(onRemove) {}
+    LinkedList(OnRemove const &onRemove)
+    : _head(NULL), _tail(NULL), _count(0), _onRemove(onRemove) {}
     virtual ~LinkedList() { clear(); }
 
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
     LinkedList(LinkedList &&src)
-    : _head(src._head), _count(src._count), _onRemove(src._onRemove)
-    { src._head = NULL; }
+    : _head(src._head), _tail(src._tail), _count(src._count), _onRemove(std::move(src._onRemove))
+    { src._head = src._tail = NULL; src._count = 0; }
 #endif
 
     bool isEmpty() const { return _head == NULL; }
