@@ -34,7 +34,7 @@ static String _PlatformAnnotation;
 String const& GetPlatformAnnotation(void) {
   if (_PlatformAnnotation.empty()) {
 #if defined(ESP8266)
-    _PlatformAnnotation.concat("ESP8266 NonOS-", 14);    
+    _PlatformAnnotation.concat("ESP8266 NonOS-", 14);
     _PlatformAnnotation.concat(system_get_sdk_version());
     _PlatformAnnotation.concat(" ID#", 4);
     _PlatformAnnotation.concat(system_get_chip_id(), 16);
@@ -147,6 +147,7 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
   _assembleHead();
   _state = RESPONSE_STATUS;
   // ASSUMPTION: status line is ALWAYS shorter than sendbuf
+  // TRUE with current implementation (sendbuf = multiple of TCP_MSS)
   _sendbuf = (uint8_t*)_status.begin();
   _bufLen = _status.length();
   _ack(0, 0);
@@ -189,7 +190,7 @@ size_t AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
   _inFlightLength -= len;
   size_t written = 0;
   while (_sending() && (ESP.getFreeHeap() > MIN_FREE_HEAP) && _prepareSendBuf()) {
-    size_t sendLen = _request->_client.write((const char*)&_sendbuf[_bufSent], _bufLen);
+    size_t sendLen = _request->_client.add((const char*)&_sendbuf[_bufSent], _bufLen);
     if (sendLen) {
       ESPWS_DEBUGVV("[%s] Sent out %d of %d\n", _request->_remoteIdent.c_str(), sendLen,_bufLen);
       written += sendLen;
@@ -198,7 +199,14 @@ size_t AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
         _releaseSendBuf();
     } else break;
   }
-  _inFlightLength += written;
+  if (written) {
+    // ASSUMPTION: No error that concerns us will happen
+    // TRUE with current implementation (error code is only possible when nothing to send)
+    _request->_client.send();
+    _inFlightLength += written;
+    ESPWS_DEBUGVV("[%s] In-flight %d\n", _request->_remoteIdent.c_str(), _inFlightLength);
+  }
+
   if (_waitack() && !_inFlightLength) {
     // All data acked, now we are done!
     ESPWS_DEBUGV("[%s] All data acked\n", _request->_remoteIdent.c_str());
