@@ -265,6 +265,11 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 
   if (_state == REQUEST_RECEIVED) {
     _handler->_handleRequest(*this);
+    // Free up resources no longer needed
+    _contentType.clear(true);
+    _authorization.clear(true);
+    _headers.clear();
+    _queries.clear();
   }
 
   if (_state == REQUEST_ERROR) {
@@ -275,6 +280,9 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
   if (_state == REQUEST_RESPONSE) {
     _client.setRxTimeout(0);
     _response->_respond(*this);
+    // Free up resources no longer needed
+    _url.clear(true);
+    _host.clear(true);
     Scheduler.schedule(this);
   }
 }

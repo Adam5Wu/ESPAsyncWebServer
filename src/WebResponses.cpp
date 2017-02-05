@@ -145,6 +145,7 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
   _assembleHead();
   _state = RESPONSE_STATUS;
   // ASSUMPTION: status line is ALWAYS shorter than sendbuf
+  // TRUE with current implementation (sendbuf = multiple of TCP_MSS)
   _sendbuf = (uint8_t*)_status.begin();
   _bufLen = _status.length();
   // We want to get the head part out ASAP
@@ -198,9 +199,9 @@ size_t AsyncSimpleResponse::_process(size_t resShare) {
   ESPWS_DEBUGVV("[%s] Processing share %d\n", _request->_remoteIdent.c_str(), resShare);
   size_t written = 0;
   while (_sending() && resShare && _prepareSendBuf(resShare)) {
-    size_t sendLen = _request->_client.write((const char*)&_sendbuf[_bufSent], _bufLen);
+    size_t sendLen = _request->_client.add((const char*)&_sendbuf[_bufSent], _bufLen);
     if (sendLen) {
-      ESPWS_DEBUGVV("[%s] Sent out %d of %d\n", _request->_remoteIdent.c_str(), sendLen, _bufLen);
+      ESPWS_DEBUGVV("[%s] Queued %d of %d\n", _request->_remoteIdent.c_str(), sendLen, _bufLen);
       written += sendLen;
       _bufSent += sendLen;
       resShare -= sendLen;
@@ -212,6 +213,9 @@ size_t AsyncSimpleResponse::_process(size_t resShare) {
     }
   }
   if (written) {
+    // ASSUMPTION: No error that concerns us will happen
+    // TRUE with current implementation (error code is only possible when nothing to send)
+    _request->_client.send();
     _inFlightLength += written;
     ESPWS_DEBUGVV("[%s] In-flight %d\n", _request->_remoteIdent.c_str(), _inFlightLength);
   }
