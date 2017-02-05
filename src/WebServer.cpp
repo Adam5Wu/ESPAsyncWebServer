@@ -21,8 +21,16 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
+#if defined(ESP31B)
+#include <ESP31BWiFi.h>
+#elif defined(ESP8266)
+#include <ESP8266WiFi.h>
+#else
+#error Platform not supported
+#endif
+
 #if ASYNC_TCP_SSL_ENABLED && USE_VFATFS
-  #include "vfatfs_api.h"
+#include "vfatfs_api.h"
 #endif
 
 String const EMPTY_STRING;

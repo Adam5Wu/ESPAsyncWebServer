@@ -27,8 +27,6 @@ extern "C" {
   #include "user_interface.h"
 }
 
-#define MIN_FREE_HEAP 4096
-
 static String _PlatformAnnotation;
 
 String const& GetPlatformAnnotation(void) {
@@ -464,7 +462,6 @@ size_t AsyncFileResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
   if (_contentLength == -1 && !outLen) {
     _contentLength = 0; // Stops fillBuffer from being called again
     _state = RESPONSE_WAIT_ACK;
-    return 0;
   }
   return outLen;
 }
@@ -555,8 +552,9 @@ void AsyncChunkedResponse::_assembleHead(void){
 }
 
 bool AsyncChunkedResponse::_prepareContentSendBuf(size_t space) {
-  if (space <= 32) return false; // Buffer too small to worth the effort
-  if (space > 0x2000) space = 0x2000;
+  // Make sure the buffer we are going to prepare is reasonable
+  if (space <= 32) return false; // Too small to worth the effort
+  if (space > 0x2000) space = 0x2000; // Too big to work with (don't want to starve others!)
 
   return AsyncBufferedResponse::_prepareContentSendBuf(space);
 }

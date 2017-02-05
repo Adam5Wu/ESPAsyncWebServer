@@ -29,14 +29,6 @@
 
 #include "StringArray.h"
 
-#if defined(ESP31B)
-#include <ESP31BWiFi.h>
-#elif defined(ESP8266)
-#include <ESP8266WiFi.h>
-#else
-#error Platform not supported
-#endif
-
 #define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
 #define ESPWS_DEBUG_LEVEL 1
 

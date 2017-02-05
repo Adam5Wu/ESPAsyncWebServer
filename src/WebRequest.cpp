@@ -28,10 +28,10 @@
 
 extern "C" {
   #include "lwip/opt.h"
-	#include "lwip/inet.h"
-	#include "lwip/err.h"
-	#include "lwip/app/espconn.h"
-	#include "user_interface.h"
+  #include "lwip/inet.h"
+  #include "lwip/err.h"
+  #include "lwip/app/espconn.h"
+  #include "user_interface.h"
 }
 
 String urlDecode(char *buf) {
@@ -63,8 +63,8 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
     size_t const schedShare = espconn_tcp_get_wnd()*TCP_MSS;
     // Minimal heap available before scheduling a response processing
     // 4K = Flash physical sector size
-    // 1K = Misc heap uses
-    size_t const minFreeHeap = 4096+1024+schedShare;
+    // 2K = Misc heap uses
+    size_t const minFreeHeap = 4096+2048+schedShare;
 
     os_timer_t timer = {0};
     bool running = false;
@@ -75,14 +75,14 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
       if (!running) {
         running = true;
         os_timer_arm(&timer, resolution, true);
-        ESPWS_DEBUGVV("<Scheduler> Start\n");
+        ESPWS_DEBUG("<Scheduler> Start\n");
       }
     }
     void stopTimer() {
       if (running) {
         running = false;
         os_timer_disarm(&timer);
-        ESPWS_DEBUGVV("<Scheduler> Stop\n");
+        ESPWS_DEBUG("<Scheduler> Stop\n");
       }
     }
 
@@ -92,32 +92,33 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
     uint8_t statsCnt = 0;
 
   public:
-    RequestScheduler() : LinkedList(NULL) {
+    RequestScheduler()
+    : LinkedList(std::bind(&RequestScheduler::curValidator, this, std::placeholders::_1))
+    {
       os_timer_setfn(&timer, &RequestScheduler::timerThunk, this);
     }
     ~RequestScheduler() { stopTimer(); }
 
     void schedule(AsyncWebRequest *req) {
       if (append(req) == 0) startTimer();
-      ESPWS_DEBUGVV("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+      ESPWS_DEBUG("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
     }
 
     void deschedule(AsyncWebRequest *req) {
-      remove_nth_if(0, [&](AsyncWebRequest *x) {
-        return req == x;
-      }, [&](AsyncWebRequest *x) {
-        if (_cur && _cur->value() == x)
-          _cur = _cur->next;
-        return false;
-      });
-      ESPWS_DEBUGVV("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+      remove(req);
+      ESPWS_DEBUG("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+    }
+
+    void curValidator(AsyncWebRequest *x) {
+      if (_cur && _cur->value() == x)
+      _cur = _cur->next;
     }
 
     void run(void) {
       int _procCnt = 0;
       size_t freeHeap = ESP.getFreeHeap();
-      while (_procCnt++ <= _count && freeHeap > minFreeHeap) {
-        if (!statsCnt++) ESPWS_DEBUGVV("<Scheduler> Processing (Heap=%d, Queue=%d)\n", freeHeap, _count);
+      while (_procCnt++ <= _count && freeHeap >= minFreeHeap) {
+        if (!statsCnt++) ESPWS_DEBUG("<Scheduler> Processing (Heap=%d, Queue=%d)\n", freeHeap, _count);
         if (!_cur) _cur = _head;
         if (_cur) {
           if (_cur->value()->_onSched(schedShare))
