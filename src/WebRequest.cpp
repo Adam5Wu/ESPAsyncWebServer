@@ -28,9 +28,6 @@
 
 extern "C" {
   #include "lwip/opt.h"
-  #include "lwip/inet.h"
-  #include "lwip/err.h"
-  #include "lwip/app/espconn.h"
   #include "user_interface.h"
 }
 
@@ -60,7 +57,7 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
     uint32_t const resolution = 50;
     uint8_t const shareFactor = 2;
 
-    size_t const schedShare = espconn_tcp_get_wnd()*TCP_MSS;
+    size_t const schedShare = TCP_SND_BUF;
     // Minimal heap available before scheduling a response processing
     // 4K = Flash physical sector size
     // 2K = Misc heap uses
