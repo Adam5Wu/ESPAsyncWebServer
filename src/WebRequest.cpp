@@ -68,6 +68,7 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 
     os_timer_t timer = {0};
     bool running = false;
+    uint8_t idleCnt = 0;
 
     ItemType *_cur = NULL;
 
@@ -75,21 +76,19 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
       if (!running) {
         running = true;
         os_timer_arm(&timer, resolution, true);
-        ESPWS_DEBUG("<Scheduler> Start\n");
+        ESPWS_DEBUGVV("<Scheduler> Start\n");
       }
     }
     void stopTimer() {
       if (running) {
         running = false;
         os_timer_disarm(&timer);
-        ESPWS_DEBUG("<Scheduler> Stop\n");
+        ESPWS_DEBUGVV("<Scheduler> Stop\n");
       }
     }
 
     static void timerThunk(void *arg)
     { ((RequestScheduler*)arg)->run(); }
-
-    uint8_t statsCnt = 0;
 
   public:
     RequestScheduler()
@@ -101,12 +100,12 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 
     void schedule(AsyncWebRequest *req) {
       if (append(req) == 0) startTimer();
-      ESPWS_DEBUG("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+      ESPWS_DEBUGVV("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
     }
 
     void deschedule(AsyncWebRequest *req) {
       remove(req);
-      ESPWS_DEBUG("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+      ESPWS_DEBUGVV("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
     }
 
     void curValidator(AsyncWebRequest *x) {
@@ -118,14 +117,14 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
       int _procCnt = 0;
       size_t freeHeap = ESP.getFreeHeap();
       while (_procCnt++ <= _count && freeHeap >= minFreeHeap) {
-        if (!statsCnt++) ESPWS_DEBUG("<Scheduler> Processing (Heap=%d, Queue=%d)\n", freeHeap, _count);
         if (!_cur) _cur = _head;
         if (_cur) {
+          idleCnt = 100;
           if (_cur->value()->_onSched(schedShare))
             freeHeap = ESP.getFreeHeap();
           _cur = _cur->next;
         } else {
-          if (!statsCnt) stopTimer();
+          if (!--idleCnt) stopTimer();
           break;
         }
       }
