@@ -144,8 +144,8 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
 
   _assembleHead();
   _state = RESPONSE_STATUS;
-  // ASSUMPTION: status line is ALWAYS shorter than sendbuf
-  // TRUE with current implementation (sendbuf = multiple of TCP_MSS)
+  // ASSUMPTION: status line is ALWAYS shorter than TCP_SND_BUF
+  // TRUE with current implementation (TCP_SND_BUF = 2*TCP_MSS, and TCP_MSS = 1460)
   _sendbuf = (uint8_t*)_status.begin();
   _bufLen = _status.length();
   // We want to get the head part out ASAP
