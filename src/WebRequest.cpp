@@ -52,17 +52,14 @@ String urlDecode(char *buf) {
   return Ret;
 }
 
+#define SCHED_RES      10
+#define SCHED_SHARE    TCP_SND_BUF
+// Minimal heap available before scheduling a response processing
+// 4K = Flash physical sector size
+// 2K = Misc heap uses
+#define SCHED_MINHEAP  (4096+2048+SCHED_SHARE)
 class RequestScheduler : private LinkedList<AsyncWebRequest*> {
   protected:
-    uint32_t const resolution = 50;
-    uint8_t const shareFactor = 2;
-
-    size_t const schedShare = TCP_SND_BUF;
-    // Minimal heap available before scheduling a response processing
-    // 4K = Flash physical sector size
-    // 2K = Misc heap uses
-    size_t const minFreeHeap = 4096+2048+schedShare;
-
     os_timer_t timer = {0};
     bool running = false;
     uint8_t idleCnt = 0;
@@ -72,7 +69,7 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
     void startTimer() {
       if (!running) {
         running = true;
-        os_timer_arm(&timer, resolution, true);
+        os_timer_arm(&timer, SCHED_RES, true);
         ESPWS_DEBUGVV("<Scheduler> Start\n");
       }
     }
@@ -113,11 +110,11 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
     void run(void) {
       int _procCnt = 0;
       size_t freeHeap = ESP.getFreeHeap();
-      while (_procCnt++ <= _count && freeHeap >= minFreeHeap) {
+      while (_procCnt++ <= _count && freeHeap >= SCHED_MINHEAP) {
         if (!_cur) _cur = _head;
         if (_cur) {
           idleCnt = 100;
-          if (_cur->value()->_onSched(schedShare))
+          if (_cur->value()->_onSched(SCHED_SHARE))
             freeHeap = ESP.getFreeHeap();
           _cur = _cur->next;
         } else {

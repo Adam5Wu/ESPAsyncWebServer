@@ -148,8 +148,10 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
   // TRUE with current implementation (TCP_SND_BUF = 2*TCP_MSS, and TCP_MSS = 1460)
   _sendbuf = (uint8_t*)_status.begin();
   _bufLen = _status.length();
+#if 0 // Only do this for no content response, otherwise, it may make total response take longer
   // We want to get the head part out ASAP
   _process(_bufLen+_headers.length());
+#endif
 }
 
 void AsyncSimpleResponse::_assembleHead(void) {
@@ -206,12 +208,14 @@ size_t AsyncSimpleResponse::_process(size_t resShare) {
       _bufSent += sendLen;
       resShare -= sendLen;
       if (!(_bufLen-= sendLen))
-        _releaseSendBuf();
+        _releaseSendBuf(true);
     } else {
       ESPWS_DEBUGVV("[%s] Pipe congested, %d share left\n", _request->_remoteIdent.c_str(), resShare);
       break;
     }
   }
+  // If all prepared data are sent, no need to occupy memory
+  if (!_bufLen) _releaseSendBuf();
   if (written) {
     // ASSUMPTION: No error that concerns us will happen
     // TRUE with current implementation (error code is only possible when nothing to send)
@@ -368,8 +372,10 @@ size_t AsyncPrintResponse::write(const uint8_t *data, size_t len){
  * Buffered (abstract) Content Response
  * */
 
+#define STAGEBUF_SIZE 512
+
 AsyncBufferedResponse::AsyncBufferedResponse(int code, const String& contentType)
-  : AsyncBasicResponse(code, contentType)
+  : AsyncBasicResponse(code, contentType), _stashbuf(NULL)
 {}
 
 bool AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
@@ -380,9 +386,9 @@ bool AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
   _bufLen = (space < bufToSend)? space : bufToSend;
   ESPWS_DEBUGV("[%s] Preparing %d / %d\n", _request->_remoteIdent.c_str(), _bufLen, bufToSend);
 
-  _sendbuf = (uint8_t*)malloc(_bufLen);
+  _sendbuf = _stashbuf? _stashbuf : (_stashbuf = (uint8_t*)malloc(STAGEBUF_SIZE));
   if (_sendbuf) {
-    _bufLen = _fillBuffer((uint8_t*)_sendbuf, _bufLen);
+    _bufLen = _fillBuffer((uint8_t*)_sendbuf, _bufLen < STAGEBUF_SIZE? _bufLen : STAGEBUF_SIZE);
     _bufPrepared+= _bufLen;
   } else {
     ESPWS_DEBUGV("[%s] Buffer allocation failed!\n", _request->_remoteIdent.c_str());
@@ -390,9 +396,11 @@ bool AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
   return true;
 }
 
-void AsyncBufferedResponse::_releaseSendBuf(void) {
-  if (_state > RESPONSE_HEADERS)
-    free((void*)_sendbuf);
+void AsyncBufferedResponse::_releaseSendBuf(bool more) {
+  if (!more) {
+    free((void*)_stashbuf);
+    _stashbuf = NULL;
+  }
   _sendbuf = NULL;
 }
 

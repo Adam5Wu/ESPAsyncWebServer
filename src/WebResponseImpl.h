@@ -44,9 +44,9 @@ class AsyncSimpleResponse: public AsyncWebResponse {
     // We do not support content at this stage, but since the concept of content is important
     //  we land the concept here, but only implement null content
     virtual bool _prepareContentSendBuf(size_t space);
-    virtual void _releaseSendBuf(void) { _sendbuf = NULL; }
+    virtual void _releaseSendBuf(bool more = false) { _sendbuf = NULL; }
 
-    virtual void _requestCleanup(void) { _request->_client.close(true); }
+    virtual void _requestCleanup(void) { _request->_client.close(); }
 
     void _prepareAllocatedSendBuf(uint8_t const *buf, size_t limit, size_t space);
 
@@ -113,10 +113,11 @@ class AsyncPrintResponse: public AsyncStringRefResponse, public Print {
 
 class AsyncBufferedResponse: public AsyncBasicResponse {
   protected:
+    uint8_t const *_stashbuf;
     AsyncBufferedResponse(int code, const String& contentType=String());
 
     virtual bool _prepareContentSendBuf(size_t space) override;
-    virtual void _releaseSendBuf(void) override;
+    virtual void _releaseSendBuf(bool more) override;
     virtual size_t _fillBuffer(uint8_t *buf, size_t maxLen) = 0;
 };
 

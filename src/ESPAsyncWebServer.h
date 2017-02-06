@@ -276,9 +276,9 @@ class AsyncWebResponse {
     AsyncWebRequest *_request;
 
     const char* _responseCodeToString(void);
+    AsyncWebResponse(int code);
 
   public:
-    AsyncWebResponse(int code);
     virtual ~AsyncWebResponse() {}
 
     virtual void setCode(int code);
