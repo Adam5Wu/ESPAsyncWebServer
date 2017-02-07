@@ -44,7 +44,8 @@ bool AsyncRequestHeadParser::_parseLine(void) {
       if(!_temp.empty()) {
         // More headers
         if (!_parseReqHeader()) {
-          __reqState(REQUEST_ERROR);
+          if (__reqState() == REQUEST_HEADERS)
+            __reqState(REQUEST_ERROR);
           return false;
         }
         break;
@@ -121,6 +122,9 @@ bool AsyncRequestHeadParser::_parseReqStart(void) {
   __setVersion(memcmp(&_temp[indexVer+1], "HTTP/1.0", 8)? 1 : 0);
   __setUrl(urlDecode(&_temp[indexUrl+1]));
 
+  // Per RFC, HTTP 1.1 connections are persistent by default
+  if (_request.version()) __setKeepAlive(true);
+
   ESPWS_DEBUGV("[%s] HTTP/1.%d %s %s\n", _request._remoteIdent.c_str(),
                _request.version(), _request.methodToString(), _request.url().c_str());
   return true;
@@ -140,6 +144,21 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
   if (_temp.equalsIgnoreCase("Host")) {
     __setHost(value);
     ESPWS_DEBUGV("[%s] + Host: '%s'\n", _request._remoteIdent.c_str(), _request.host().c_str());
+  } else if (_temp.equalsIgnoreCase("Connection")) {
+    if (value.equalsIgnoreCase("keep-alive")) {
+      __setKeepAlive(true);
+      ESPWS_DEBUGV("[%s] + Connection: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
+    } else if (value.equalsIgnoreCase("close")) {
+      __setKeepAlive(false);
+      ESPWS_DEBUGV("[%s] + Connection: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
+    } else {
+      ESPWS_DEBUGV("[%s] ? Connection: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
+#ifdef STRICT_PROTOCOL
+      _request.send(400);
+      __reqState(REQUEST_RESPONSE);
+      return false;
+#endif
+    }
   } else if (_temp.equalsIgnoreCase("Content-Type")) {
     __setContentType(value);
     ESPWS_DEBUGV("[%s] + Content-Type: '%s'\n", _request._remoteIdent.c_str(), _request.contentType().c_str());
@@ -157,6 +176,7 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 #ifdef STRICT_PROTOCOL
       // According to RFC, unrecognised expect should be rejected with error
       _request.send(417);
+      __reqState(REQUEST_RESPONSE);
       return false;
 #endif
     }

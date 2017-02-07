@@ -38,13 +38,15 @@ class AsyncSimpleResponse: public AsyncWebResponse {
     size_t _inFlightLength;
 
     virtual void _assembleHead(void);
+    virtual void _kickstart(void)
+    { _process(_bufLen+_headers.length()); }
 
     virtual bool _prepareSendBuf(size_t resShare);
-    virtual bool _prepareHeadSendBuf(size_t space);
+    virtual void _prepareHeadSendBuf(size_t space);
     // We do not support content at this stage, but since the concept of content is important
     //  we land the concept here, but only implement null content
-    virtual bool _prepareContentSendBuf(size_t space);
-    virtual void _releaseSendBuf(bool more = false) { _sendbuf = NULL; }
+    virtual void _prepareContentSendBuf(size_t space);
+    virtual void _releaseSendBuf(bool more = false);
 
     virtual void _requestComplete(void) { _state = RESPONSE_END; }
 
@@ -66,8 +68,11 @@ class AsyncBasicResponse: public AsyncSimpleResponse {
     size_t _contentLength;
 
     virtual void _assembleHead(void) override;
+    virtual void _kickstart(void)
+    { if (!_contentLength) AsyncSimpleResponse::_kickstart(); }
+
     // We now build the concept of typed and sized content, still no implementation here
-    virtual bool _prepareContentSendBuf(size_t space) override;
+    virtual void _prepareContentSendBuf(size_t space) override;
 
   public:
     AsyncBasicResponse(int code, const String& contentType=String());
@@ -82,7 +87,7 @@ class AsyncStringRefResponse: public AsyncBasicResponse {
 
   protected:
     virtual void _assembleHead(void) override;
-    virtual bool _prepareContentSendBuf(size_t space) override;
+    virtual void _prepareContentSendBuf(size_t space) override;
 
   public:
     AsyncStringRefResponse(int code, const String& content, const String& contentType=String());
@@ -116,7 +121,7 @@ class AsyncBufferedResponse: public AsyncBasicResponse {
     uint8_t const *_stashbuf;
     AsyncBufferedResponse(int code, const String& contentType=String());
 
-    virtual bool _prepareContentSendBuf(size_t space) override;
+    virtual void _prepareContentSendBuf(size_t space) override;
     virtual void _releaseSendBuf(bool more) override;
     virtual size_t _fillBuffer(uint8_t *buf, size_t maxLen) = 0;
 };
@@ -178,7 +183,7 @@ class AsyncChunkedResponse: public AsyncBufferedResponse {
 
   protected:
     virtual void _assembleHead(void) override;
-    virtual bool _prepareContentSendBuf(size_t space) override;
+    virtual void _prepareContentSendBuf(size_t space) override;
     virtual size_t _fillBuffer(uint8_t *buf, size_t maxLen) override;
 
   public:

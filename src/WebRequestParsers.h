@@ -44,6 +44,7 @@ class AsyncWebParser {
       if (!newHost.empty()) _request._host = std::move(newHost);
       else { _request._host.reserve(0); _request._host.clear(); }
     }
+    void __setKeepAlive(bool state) { _request._keepAlive = state; }
     void __setContentType(String &newContentType)
     { _request._contentType = std::move(newContentType); }
     void __setContentLength(size_t newContentLength)

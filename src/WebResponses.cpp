@@ -105,19 +105,15 @@ void AsyncWebResponse::setCode(int code) {
 }
 
 void AsyncWebResponse::_respond(AsyncWebRequest &request) {
-  ESPWS_LOG("[%s:%d] %d %s %s %s\n", request._client.remoteIP().toString().c_str(), request._client.remotePort(),
-            _code, request.methodToString(), request.host().c_str(), request.url().c_str());
-
   _request = &request;
 }
 
 ESPWS_DEBUGDO(const char* AsyncWebResponse::_stateToString(void) const {
   switch (_state) {
     case RESPONSE_SETUP: return "Setup";
-    case RESPONSE_STATUS: return "Status";
     case RESPONSE_HEADERS: return "Headers";
     case RESPONSE_CONTENT: return "Content";
-    case RESPONSE_WAIT_ACK: return "Wait-Ack";
+    case RESPONSE_WAIT_ACK: return "WaitAck";
     case RESPONSE_END: return "End";
     case RESPONSE_FAILED: return "Failed";
     default: return "???";
@@ -143,22 +139,29 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
   AsyncWebResponse::_respond(request);
 
   if (_state == RESPONSE_SETUP) {
+    ESPWS_LOG("[%s:%d] %d %s %s %s\n", request._client.remoteIP().toString().c_str(), request._client.remotePort(),
+              _code, request.methodToString(), request.host().c_str(), request.url().c_str());
+
     _assembleHead();
-    _state = RESPONSE_STATUS;
+    _state = RESPONSE_HEADERS;
     // ASSUMPTION: status line is ALWAYS shorter than TCP_SND_BUF
     // TRUE with current implementation (TCP_SND_BUF = 2*TCP_MSS, and TCP_MSS = 1460)
     _sendbuf = (uint8_t*)_status.begin();
     _bufLen = _status.length();
+    _kickstart();
   } else {
-    ESPWS_DEBUG("[%s] Unexpected response state: %s", _stateToString());
+    ESPWS_DEBUG("[%s] Unexpected response state: %s\n", _request->_remoteIdent.c_str(), _stateToString());
     _state = RESPONSE_FAILED;
   }
 }
 
 void AsyncSimpleResponse::_assembleHead(void) {
   uint8_t version = _request->version();
-  if (version)
+  if (!_request->keepAlive()) {
     addHeader("Connection", "close");
+  } else if (!version) {
+    addHeader("Connection", "keep-alive");
+  }
 
   ESPWS_DEBUGVV("[%s]--- Headers Start ---\n%s[%s]--- Headers End ---\n", _request->_remoteIdent.c_str(),
                 _headers.c_str(), _request->_remoteIdent.c_str());
@@ -236,52 +239,50 @@ bool AsyncSimpleResponse::_prepareSendBuf(size_t resShare) {
     }
     _bufSent = 0;
 
-    if (_state == RESPONSE_STATUS) {
-      _status.clear(true);
-      _state = RESPONSE_HEADERS;
-    }
-
     if (_state == RESPONSE_HEADERS) {
+      _status.clear(true);
       ESPWS_DEBUGVV("[%s] Preparing head @%d\n", _request->_remoteIdent.c_str(), _bufPrepared);
-      if (_prepareHeadSendBuf(space))
-        break;
-    }
-
-    if (_state == RESPONSE_CONTENT) {
+      _prepareHeadSendBuf(space);
+    } else if (_state == RESPONSE_CONTENT) {
+      _headers.clear(true);
       ESPWS_DEBUGVV("[%s] Preparing content @%d\n", _request->_remoteIdent.c_str(), _bufPrepared);
       _prepareContentSendBuf(space);
     }
-
     break;
   }
   return !!_sendbuf;
 }
 
-bool AsyncSimpleResponse::_prepareHeadSendBuf(size_t space) {
-  if (_bufPrepared >= _headers.length()) {
-    _headers.clear(true);
-    _state = RESPONSE_CONTENT;
-    _bufPrepared = 0;
-    return false;
+void AsyncSimpleResponse::_releaseSendBuf(bool more) {
+  if (_state == RESPONSE_HEADERS) {
+    if (_bufPrepared >= _headers.length()) {
+      _state = RESPONSE_CONTENT;
+      _bufPrepared = 0;
+      // Probe whether there is any content to send
+      _prepareContentSendBuf(0);
+    }
   }
-
-  _prepareAllocatedSendBuf((uint8_t*)_headers.begin(), _headers.length(), space);
-  return true;
+  _sendbuf = NULL;
 }
 
-bool AsyncSimpleResponse::_prepareContentSendBuf(size_t space) {
+void AsyncSimpleResponse::_prepareHeadSendBuf(size_t space) {
+  _prepareAllocatedSendBuf((uint8_t*)_headers.begin(), _headers.length(), space);
+}
+
+void AsyncSimpleResponse::_prepareContentSendBuf(size_t space) {
   // Implement null content
-  ESPWS_DEBUGV("[%s] Content all prepared @%d\n", _request->_remoteIdent.c_str(), _bufPrepared+_bufLen);
+  ESPWS_DEBUGV("[%s] No content to send\n", _request->_remoteIdent.c_str());
   _state = RESPONSE_WAIT_ACK;
-  return false;
 }
 
 void AsyncSimpleResponse::_prepareAllocatedSendBuf(uint8_t const *buf, size_t limit, size_t space) {
-  ESPWS_DEBUGVV("[%s] Preparing static buffer of %d up to %d\n", _request->_remoteIdent.c_str(), limit, space);
-  _sendbuf = (uint8_t*)&buf[_bufPrepared];
-  size_t bufToSend = limit - _bufPrepared;
-  _bufLen = space >= bufToSend? bufToSend: space;
-  _bufPrepared+= _bufLen;
+  if (space) {
+    ESPWS_DEBUGVV("[%s] Preparing static buffer of %d up to %d\n", _request->_remoteIdent.c_str(), limit, space);
+    _sendbuf = (uint8_t*)&buf[_bufPrepared];
+    size_t bufToSend = limit - _bufPrepared;
+    _bufLen = space >= bufToSend? bufToSend: space;
+    _bufPrepared+= _bufLen;
+  }
 }
 
 /*
@@ -311,10 +312,10 @@ void AsyncBasicResponse::_assembleHead(void) {
   AsyncSimpleResponse::_assembleHead();
 }
 
-bool AsyncBasicResponse::_prepareContentSendBuf(size_t space) {
+void AsyncBasicResponse::_prepareContentSendBuf(size_t space) {
   // While we establish the concept, non-null content is not supported, yet
   while (_contentLength && _contentLength != -1) panic();
-  return AsyncSimpleResponse::_prepareContentSendBuf(space);
+  AsyncSimpleResponse::_prepareContentSendBuf(space);
 }
 
 void AsyncBasicResponse::setContentLength(size_t len) {
@@ -351,12 +352,10 @@ void AsyncStringRefResponse::_assembleHead(void) {
   AsyncBasicResponse::_assembleHead();
 }
 
-bool AsyncStringRefResponse::_prepareContentSendBuf(size_t space) {
+void AsyncStringRefResponse::_prepareContentSendBuf(size_t space) {
   if (_bufPrepared >= _contentLength)
-    return AsyncSimpleResponse::_prepareContentSendBuf(space);
-
+    AsyncSimpleResponse::_prepareContentSendBuf(space);
   _prepareAllocatedSendBuf((uint8_t*)_content.begin(), _contentLength, space);
-  return true;
 }
 
 /*
@@ -378,28 +377,37 @@ AsyncBufferedResponse::AsyncBufferedResponse(int code, const String& contentType
   : AsyncBasicResponse(code, contentType), _stashbuf(NULL)
 {}
 
-bool AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
+void AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
   if (_bufPrepared >= _contentLength)
-    return AsyncSimpleResponse::_prepareContentSendBuf(space);
+    AsyncSimpleResponse::_prepareContentSendBuf(space);
 
-  size_t bufToSend = (_contentLength == -1)? space : _contentLength - _bufPrepared;
-  _bufLen = (space < bufToSend)? space : bufToSend;
-  ESPWS_DEBUGV("[%s] Preparing %d / %d\n", _request->_remoteIdent.c_str(), _bufLen, bufToSend);
+  if (space) {
+    size_t bufToSend = (_contentLength == -1)? space : _contentLength - _bufPrepared;
+    _bufLen = (space < bufToSend)? space : bufToSend;
+    ESPWS_DEBUGV("[%s] Preparing %d / %d\n", _request->_remoteIdent.c_str(), _bufLen, bufToSend);
 
-  _sendbuf = _stashbuf? _stashbuf : (_stashbuf = (uint8_t*)malloc(STAGEBUF_SIZE));
-  if (_sendbuf) {
-    _bufLen = _fillBuffer((uint8_t*)_sendbuf, _bufLen < STAGEBUF_SIZE? _bufLen : STAGEBUF_SIZE);
-    _bufPrepared+= _bufLen;
-  } else {
-    ESPWS_DEBUGV("[%s] Buffer allocation failed!\n", _request->_remoteIdent.c_str());
+    _sendbuf = _stashbuf? _stashbuf : (_stashbuf = (uint8_t*)malloc(STAGEBUF_SIZE));
+    if (_sendbuf) {
+      _bufLen = _fillBuffer((uint8_t*)_sendbuf, _bufLen < STAGEBUF_SIZE? _bufLen : STAGEBUF_SIZE);
+      _bufPrepared+= _bufLen;
+    } else ESPWS_DEBUGV("[%s] Buffer allocation failed!\n", _request->_remoteIdent.c_str());
   }
-  return true;
 }
 
 void AsyncBufferedResponse::_releaseSendBuf(bool more) {
+  if (_state <= RESPONSE_HEADERS) {
+    AsyncSimpleResponse::_releaseSendBuf(more);
+    return;
+  }
   if (!more) {
     free((void*)_stashbuf);
     _stashbuf = NULL;
+
+    if (_state == RESPONSE_CONTENT) {
+      if (_bufPrepared >= _contentLength) {
+        _state = RESPONSE_WAIT_ACK;
+      }
+    }
   }
   _sendbuf = NULL;
 }
@@ -563,12 +571,12 @@ void AsyncChunkedResponse::_assembleHead(void){
   AsyncBasicResponse::_assembleHead();
 }
 
-bool AsyncChunkedResponse::_prepareContentSendBuf(size_t space) {
+void AsyncChunkedResponse::_prepareContentSendBuf(size_t space) {
   // Make sure the buffer we are going to prepare is reasonable
-  if (space <= 32) return false; // Too small to worth the effort
+  if (space <= 32) return; // Too small to worth the effort
   if (space > 0x2000) space = 0x2000; // Too big to work with (don't want to starve others!)
 
-  return AsyncBufferedResponse::_prepareContentSendBuf(space);
+  AsyncBufferedResponse::_prepareContentSendBuf(space);
 }
 
 static const uint8_t HexLookup[] =

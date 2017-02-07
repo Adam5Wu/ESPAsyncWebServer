@@ -45,10 +45,8 @@ bool ON_AP_FILTER(AsyncWebRequest const &request) {
 
 char const *AsyncWebServer::VERTOKEN = "ESPAsyncHTTPd/0.1";
 
-AsyncWebServer::AsyncWebServer(uint16_t port, uint32_t reqIdleTimeout, uint32_t reqAckTimeout)
+AsyncWebServer::AsyncWebServer(uint16_t port)
   : _server(port)
-  , _reqIdleTimeout(reqIdleTimeout)
-  , _reqAckTimeout(reqAckTimeout*1000)
   , _rewrites(LinkedList<AsyncWebRewrite*>([](AsyncWebRewrite* r){ delete r; }))
   , _handlers(LinkedList<AsyncWebHandler*>([](AsyncWebHandler* h){ delete h; }))
   //, _catchAllHandler()
@@ -60,8 +58,6 @@ AsyncWebServer::AsyncWebServer(uint16_t port, uint32_t reqIdleTimeout, uint32_t 
 
 void AsyncWebServer::_handleClient(AsyncClient* c) {
   if(c == NULL) return;
-  c->setRxTimeout(_reqIdleTimeout);
-  c->setAckTimeout(_reqAckTimeout);
   AsyncWebRequest *r = new AsyncWebRequest(*this, *c);
   if(r == NULL) delete c;
 }

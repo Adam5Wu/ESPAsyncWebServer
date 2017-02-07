@@ -58,6 +58,7 @@ String urlDecode(char *buf) {
 // 4K = Flash physical sector size
 // 2K = Misc heap uses
 #define SCHED_MINHEAP  (4096+2048+SCHED_SHARE)
+
 class RequestScheduler : private LinkedList<AsyncWebRequest*> {
   protected:
     os_timer_t timer = {0};
@@ -134,6 +135,7 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
   , _response(NULL)
   , _parser(NULL)
   , _state(REQUEST_SETUP)
+  , _keepAlive(false)
   , _version(0)
   , _method(0)
   //, _url()
@@ -147,6 +149,8 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
   ESPWS_DEBUGDO(, _remoteIdent(c.remoteIP().toString()+':'+c.remotePort()))
 {
   ESPWS_DEBUGV("[%s] CONNECTED\n", _remoteIdent.c_str());
+  c.setRxTimeout(DEFAULT_IDLE_TIMEOUT);
+  c.setAckTimeout(DEFAULT_ACK_TIMEOUT);
   c.onError([](void *r, AsyncClient* c, int8_t error){
     ((AsyncWebRequest*)r)->_onError(error);
   }, this);
@@ -199,6 +203,19 @@ ESPWS_DEBUGDO(const char* AsyncWebRequest::_stateToString(void) const {
   }
 })
 
+void AsyncWebRequest::_recycleClient(void) {
+  delete _response;
+  _handler = NULL;
+  _response = NULL;
+  //_keepAlive = false;
+  //_version = 0;
+  _method = 0;
+  _contentLength = 0;
+  _authType = AUTH_NONE;
+  _state = REQUEST_SETUP;
+  _client.setRxTimeout(DEFAULT_IDLE_TIMEOUT);
+}
+
 bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
   switch (_state) {
     // The following state should never be seem here!
@@ -207,12 +224,19 @@ bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
     case REQUEST_RESPONSE:
       ESPWS_DEBUGDO(while (!_response) panic());
 
-      if (!_response->_finished()) {
+      if (_response->_sending()) {
         if (_client.canSend()) {
           ESPWS_DEBUGVV("[%s] PROG: %d\n", _remoteIdent.c_str(), resShare);
-          return _response->_process(resShare) > 0;
+          bool heapChanged = _response->_process(resShare) > 0;
+          if (_response->_sending() || !_keepAlive) return heapChanged;
         }
         break;
+      }
+
+      if (!_response->_failed() && _keepAlive) {
+        // Recycle for another request
+        _recycleClient();
+        return true;
       }
 
     case REQUEST_ERROR:
@@ -228,8 +252,10 @@ bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
 
 void AsyncWebRequest::_onAck(size_t len, uint32_t time){
   ESPWS_DEBUGVV("[%s] ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
-  if(_response && !_response->_finished())
+  if(_response && !_response->_finished()) {
     _response->_ack(len, time);
+    if (!_response->_sending() && _keepAlive) _recycleClient();
+  }
 }
 
 void AsyncWebRequest::_onError(int8_t error){
@@ -266,8 +292,8 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 #endif
 
   if (len) {
-    ESPWS_DEBUG("[%s] On-Data: ignored extra data of %d bytes [%s]\n", _remoteIdent.c_str(),
-                len, _stateToString());
+    ESPWS_DEBUG("[%s] On-Data: ignored extra data of %d bytes [%s] [%s]\n", _remoteIdent.c_str(),
+                len, _stateToString(), _response? _response->_stateToString() : "NULL");
   }
 
   if (_state == REQUEST_RECEIVED) {

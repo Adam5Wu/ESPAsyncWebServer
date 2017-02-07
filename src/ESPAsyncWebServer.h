@@ -56,8 +56,8 @@
 #define ESPWS_DEBUGVV(...) Serial.printf(__VA_ARGS__)
 #endif
 
-#define DEFAULT_IDLE_TIMEOUT      30
-#define DEFAULT_ACK_TIMEOUT       30
+#define DEFAULT_IDLE_TIMEOUT      10        // Unit s
+#define DEFAULT_ACK_TIMEOUT       10 * 1000 // Unit ms
 #define DEFAULT_REALM             "ESP8266"
 #define DEFAULT_CACHE_CTRL        "public, no-cache"
 #define DEFAULT_INDEX_FILE        "index.htm"
@@ -151,12 +151,11 @@ class AsyncWebRequest {
 
     WebServerRequestState _state;
 
+    bool _keepAlive;
     uint8_t _version;
     WebRequestMethodComposite _method;
     String _url;
-
     String _host;
-
     String _contentType;
     size_t _contentLength;
 
@@ -176,6 +175,8 @@ class AsyncWebRequest {
     void _setUrl(String && url);
     void _parseQueries(char *buf);
 
+    void _recycleClient(void);
+
     ESPWS_DEBUGDO(const char* _stateToString(void) const);
 
   public:
@@ -194,6 +195,7 @@ class AsyncWebRequest {
     const String& url() const { return _url; }
 
     const String& host() const { return _host; }
+    bool keepAlive() const { return _keepAlive; }
 
     const String& contentType() const { return _contentType; }
     size_t contentLength() const { return _contentLength; }
@@ -262,7 +264,6 @@ class AsyncWebRequest {
 
 typedef enum {
   RESPONSE_SETUP,
-  RESPONSE_STATUS,
   RESPONSE_HEADERS,
   RESPONSE_CONTENT,
   RESPONSE_WAIT_ACK,
@@ -369,8 +370,6 @@ class AsyncStaticWebHandler;
 class AsyncWebServer {
   protected:
     AsyncServer _server;
-    uint32_t _reqIdleTimeout;
-    uint32_t _reqAckTimeout;
     LinkedList<AsyncWebRewrite*> _rewrites;
     LinkedList<AsyncWebHandler*> _handlers;
 
@@ -417,7 +416,7 @@ class AsyncWebServer {
   public:
     static char const *VERTOKEN;
 
-    AsyncWebServer(uint16_t port, uint32_t reqIdleTimeout = DEFAULT_IDLE_TIMEOUT, uint32_t reqAckTimeout = DEFAULT_ACK_TIMEOUT);
+    AsyncWebServer(uint16_t port);
     ~AsyncWebServer() {}
 
     void begin() { _server.begin(); }
