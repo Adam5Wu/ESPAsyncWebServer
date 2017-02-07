@@ -46,7 +46,7 @@ class AsyncSimpleResponse: public AsyncWebResponse {
     virtual bool _prepareContentSendBuf(size_t space);
     virtual void _releaseSendBuf(bool more = false) { _sendbuf = NULL; }
 
-    virtual void _requestCleanup(void) { _request->_client.close(true); }
+    virtual void _requestComplete(void) { _state = RESPONSE_END; }
 
     void _prepareAllocatedSendBuf(uint8_t const *buf, size_t limit, size_t space);
 

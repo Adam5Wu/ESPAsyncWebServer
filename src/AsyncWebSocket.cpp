@@ -873,17 +873,8 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String& key, AsyncWebSocket
   : AsyncSimpleResponse(101)
   , _server(server)
 {
-  uint8_t * hash = (uint8_t*)malloc(20);
-  if(hash == NULL){
-    _state = RESPONSE_FAILED;
-    return;
-  }
-  char * buffer = (char *) malloc(33);
-  if(buffer == NULL){
-    free(hash);
-    _state = RESPONSE_FAILED;
-    return;
-  }
+  uint8_t hash[20];
+  char buffer[33];
 #ifdef ESP8266
   sha1(key + WS_STR_UUID, hash);
 #else
@@ -900,13 +891,8 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String& key, AsyncWebSocket
   addHeader(WS_STR_CONNECTION, WS_STR_UPGRADE);
   addHeader(WS_STR_UPGRADE, "websocket");
   addHeader(WS_STR_ACCEPT, buffer);
-  free(buffer);
-  free(hash);
 }
 
-void AsyncWebSocketResponse::_requestCleanup(void) {
-  if (_state == RESPONSE_END)
-    new AsyncWebSocketClient(_request, _server);
-  else
-    AsyncSimpleResponse::_requestCleanup();
+void AsyncWebSocketResponse::_requestComplete(void) {
+  new AsyncWebSocketClient(_request, _server);
 }

@@ -82,7 +82,7 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
     }
 
     static void timerThunk(void *arg)
-    { ((RequestScheduler*)arg)->run(); }
+    { ((RequestScheduler*)arg)->run(true); }
 
   public:
     RequestScheduler()
@@ -103,22 +103,23 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
     }
 
     void curValidator(AsyncWebRequest *x) {
-      if (_cur && _cur->value() == x)
-      _cur = _cur->next;
+      if (_cur && _cur->value() == x) _cur = _cur->next;
     }
 
-    void run(void) {
+    void run(bool sched) {
       int _procCnt = 0;
       size_t freeHeap = ESP.getFreeHeap();
       while (_procCnt++ <= _count && freeHeap >= SCHED_MINHEAP) {
         if (!_cur) _cur = _head;
         if (_cur) {
-          idleCnt = 100;
-          if (_cur->value()->_onSched(SCHED_SHARE))
+          idleCnt = 0;
+          ItemType *__cur = _cur;
+          if (_cur->value()->_makeProgress(SCHED_SHARE, sched))
             freeHeap = ESP.getFreeHeap();
-          _cur = _cur->next;
+          // Move to next request, if current has not been removed
+          if (_cur == __cur) _cur = _cur->next;
         } else {
-          if (!--idleCnt) stopTimer();
+          if (!++idleCnt) stopTimer();
           break;
         }
       }
@@ -151,7 +152,7 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
   }, this);
   c.onAck([](void *r, AsyncClient* c, size_t len, uint32_t time){
     ((AsyncWebRequest*)r)->_onAck(len, time);
-    Scheduler.run();
+    Scheduler.run(false);
   }, this);
   c.onDisconnect([](void *r, AsyncClient* c){
     ((AsyncWebRequest*)r)->_onDisconnect();
@@ -163,12 +164,13 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
   c.onData([](void *r, AsyncClient* c, void *buf, size_t len){
     ((AsyncWebRequest*)r)->_onData(buf, len);
   }, this);
+  Scheduler.schedule(this);
 }
 
 AsyncWebRequest::~AsyncWebRequest(){
+  Scheduler.deschedule(this);
   delete _parser;
   delete _response;
-  Scheduler.deschedule(this);
 }
 
 const char * AsyncWebRequest::methodToString() const {
@@ -192,45 +194,57 @@ ESPWS_DEBUGDO(const char* AsyncWebRequest::_stateToString(void) const {
     case REQUEST_RECEIVED: return "Received";
     case REQUEST_RESPONSE: return "Response";
     case REQUEST_ERROR: return "Error";
+    case REQUEST_FINALIZE: return "Finalize";
     default: return "???";
   }
 })
 
-bool AsyncWebRequest::_onSched(size_t resShare){
-  while (!_response || _response->_finished()) panic();
+bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
+  switch (_state) {
+    // The following state should never be seem here!
+    ESPWS_DEBUGDO(REQUEST_RECEIVED: panic());
 
-  if (_client.canSend()) {
-    ESPWS_DEBUGVV("[%s] SCHED %d\n", _remoteIdent.c_str(), resShare);
-    return _response->_process(resShare) > 0;
+    case REQUEST_RESPONSE:
+      ESPWS_DEBUGDO(while (!_response) panic());
+
+      if (!_response->_finished()) {
+        if (_client.canSend()) {
+          ESPWS_DEBUGVV("[%s] PROG: %d\n", _remoteIdent.c_str(), resShare);
+          return _response->_process(resShare) > 0;
+        }
+        break;
+      }
+
+    case REQUEST_ERROR:
+      if (!sched) return false;
+      _client.close(true);
+
+    case REQUEST_FINALIZE:
+      delete this;
+      return true;
   }
   return false;
 }
 
 void AsyncWebRequest::_onAck(size_t len, uint32_t time){
   ESPWS_DEBUGVV("[%s] ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
-  if(_response) {
-    if(!_response->_finished()){
-      _response->_ack(len, time);
-    } else {
-      delete _response;
-      _response = NULL;
-    }
-  }
+  if(_response && !_response->_finished())
+    _response->_ack(len, time);
 }
 
 void AsyncWebRequest::_onError(int8_t error){
-  ESPWS_DEBUG("[%s] ERROR: %d, state: %s\n", _remoteIdent.c_str(), error, _client.stateToString());
+  ESPWS_DEBUG("[%s] ERROR: %d, client state: %s\n", _remoteIdent.c_str(), error, _client.stateToString());
 }
 
 void AsyncWebRequest::_onTimeout(uint32_t time){
-  ESPWS_DEBUG("[%s] TIMEOUT: %u, state: %s\n", _remoteIdent.c_str(), time, _client.stateToString());
-  _client.close(true);
+  ESPWS_DEBUG("[%s] TIMEOUT: %u, client state: %s\n", _remoteIdent.c_str(), time, _client.stateToString());
+  _state = REQUEST_ERROR;
 }
 
 void AsyncWebRequest::_onDisconnect(){
   ESPWS_DEBUGV("[%s] DISCONNECT, response state: %s\n", _remoteIdent.c_str(),
               _response? _response->_stateToString() : "NULL");
-  _server._handleDisconnect(this);
+  _state = REQUEST_FINALIZE;
 }
 
 void AsyncWebRequest::_onData(void *buf, size_t len) {
@@ -258,16 +272,15 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 
   if (_state == REQUEST_RECEIVED) {
     _handler->_handleRequest(*this);
+    if (_state == REQUEST_RECEIVED) {
+      ESPWS_DEBUG("[%s] Ineffective handler!\n", _remoteIdent.c_str());
+      _state = REQUEST_ERROR;
+    }
     // Free up resources no longer needed
     _contentType.clear(true);
     _authorization.clear(true);
     _headers.clear();
     _queries.clear();
-  }
-
-  if (_state == REQUEST_ERROR) {
-    _client.close();
-    return;
   }
 
   if (_state == REQUEST_RESPONSE) {
@@ -276,7 +289,6 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
     // Free up resources no longer needed
     _url.clear(true);
     _host.clear(true);
-    Scheduler.schedule(this);
   }
 }
 
@@ -335,10 +347,10 @@ AsyncWebQuery const* AsyncWebRequest::getQuery(const String& name) const {
 }
 
 void AsyncWebRequest::send(AsyncWebResponse *response) {
-  while(_response != NULL) panic();
+  ESPWS_DEBUGDO(while (_response != NULL) panic());
 
   if(response == NULL){
-    ESPWS_DEBUG("[%s] WARNING: NULL response, dropping connection...\n", _remoteIdent.c_str());
+    ESPWS_DEBUG("[%s] WARNING: NULL response\n", _remoteIdent.c_str());
     _state = REQUEST_ERROR;
     return;
   }

@@ -79,7 +79,7 @@ class AsyncEventSourceResponse: public AsyncBasicResponse {
   private:
     AsyncEventSource &_server;
   protected:
-    virtual void _requestCleanup(void) override;
+    virtual void _requestComplete(void) override;
   public:
     AsyncEventSourceResponse(AsyncEventSource &server);
 };

@@ -142,16 +142,17 @@ AsyncSimpleResponse::AsyncSimpleResponse(int code)
 void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
   AsyncWebResponse::_respond(request);
 
-  _assembleHead();
-  _state = RESPONSE_STATUS;
-  // ASSUMPTION: status line is ALWAYS shorter than TCP_SND_BUF
-  // TRUE with current implementation (TCP_SND_BUF = 2*TCP_MSS, and TCP_MSS = 1460)
-  _sendbuf = (uint8_t*)_status.begin();
-  _bufLen = _status.length();
-#if 0 // Only do this for no content response, otherwise, it may make total response take longer
-  // We want to get the head part out ASAP
-  _process(_bufLen+_headers.length());
-#endif
+  if (_state == RESPONSE_SETUP) {
+    _assembleHead();
+    _state = RESPONSE_STATUS;
+    // ASSUMPTION: status line is ALWAYS shorter than TCP_SND_BUF
+    // TRUE with current implementation (TCP_SND_BUF = 2*TCP_MSS, and TCP_MSS = 1460)
+    _sendbuf = (uint8_t*)_status.begin();
+    _bufLen = _status.length();
+  } else {
+    ESPWS_DEBUG("[%s] Unexpected response state: %s", _stateToString());
+    _state = RESPONSE_FAILED;
+  }
 }
 
 void AsyncSimpleResponse::_assembleHead(void) {
@@ -192,8 +193,7 @@ void AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
   if (_waitack() && !_inFlightLength) {
     // All data acked, now we are done!
     ESPWS_DEBUGV("[%s] All data acked, finalizing\n", _request->_remoteIdent.c_str());
-    _state = RESPONSE_END;
-    _requestCleanup();
+    _requestComplete();
   }
 }
 
