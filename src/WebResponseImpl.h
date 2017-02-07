@@ -39,14 +39,14 @@ class AsyncSimpleResponse: public AsyncWebResponse {
 
     virtual void _assembleHead(void);
 
-    virtual bool _prepareSendBuf(void);
+    virtual bool _prepareSendBuf(size_t resShare);
     virtual bool _prepareHeadSendBuf(size_t space);
     // We do not support content at this stage, but since the concept of content is important
     //  we land the concept here, but only implement null content
     virtual bool _prepareContentSendBuf(size_t space);
-    virtual void _releaseSendBuf(void) { _sendbuf = NULL; }
+    virtual void _releaseSendBuf(bool more = false) { _sendbuf = NULL; }
 
-    virtual void _requestCleanup(void) { _request->_client.close(true); }
+    virtual void _requestComplete(void) { _state = RESPONSE_END; }
 
     void _prepareAllocatedSendBuf(uint8_t const *buf, size_t limit, size_t space);
 
@@ -55,8 +55,9 @@ class AsyncSimpleResponse: public AsyncWebResponse {
     ~AsyncSimpleResponse() { _releaseSendBuf(); }
 
     virtual void addHeader(const char *name, const char *value) override;
-    void _respond(AsyncWebRequest &request);
-    size_t _ack(size_t len, uint32_t time);
+    virtual void _respond(AsyncWebRequest &request) override;
+    virtual void _ack(size_t len, uint32_t time) override;
+    virtual size_t _process(size_t resShare) override;
 };
 
 class AsyncBasicResponse: public AsyncSimpleResponse {
@@ -112,10 +113,11 @@ class AsyncPrintResponse: public AsyncStringRefResponse, public Print {
 
 class AsyncBufferedResponse: public AsyncBasicResponse {
   protected:
+    uint8_t const *_stashbuf;
     AsyncBufferedResponse(int code, const String& contentType=String());
 
     virtual bool _prepareContentSendBuf(size_t space) override;
-    virtual void _releaseSendBuf(void) override;
+    virtual void _releaseSendBuf(bool more) override;
     virtual size_t _fillBuffer(uint8_t *buf, size_t maxLen) = 0;
 };
 
@@ -176,6 +178,7 @@ class AsyncChunkedResponse: public AsyncBufferedResponse {
 
   protected:
     virtual void _assembleHead(void) override;
+    virtual bool _prepareContentSendBuf(size_t space) override;
     virtual size_t _fillBuffer(uint8_t *buf, size_t maxLen) override;
 
   public:

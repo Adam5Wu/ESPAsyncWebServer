@@ -21,8 +21,16 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
+#if defined(ESP31B)
+#include <ESP31BWiFi.h>
+#elif defined(ESP8266)
+#include <ESP8266WiFi.h>
+#else
+#error Platform not supported
+#endif
+
 #if ASYNC_TCP_SSL_ENABLED && USE_VFATFS
-  #include "vfatfs_api.h"
+#include "vfatfs_api.h"
 #endif
 
 String const EMPTY_STRING;
@@ -37,9 +45,10 @@ bool ON_AP_FILTER(AsyncWebRequest const &request) {
 
 char const *AsyncWebServer::VERTOKEN = "ESPAsyncHTTPd/0.1";
 
-AsyncWebServer::AsyncWebServer(uint16_t port, uint32_t reqIdleTimeout)
+AsyncWebServer::AsyncWebServer(uint16_t port, uint32_t reqIdleTimeout, uint32_t reqAckTimeout)
   : _server(port)
   , _reqIdleTimeout(reqIdleTimeout)
+  , _reqAckTimeout(reqAckTimeout*1000)
   , _rewrites(LinkedList<AsyncWebRewrite*>([](AsyncWebRewrite* r){ delete r; }))
   , _handlers(LinkedList<AsyncWebHandler*>([](AsyncWebHandler* h){ delete h; }))
   //, _catchAllHandler()
@@ -52,6 +61,7 @@ AsyncWebServer::AsyncWebServer(uint16_t port, uint32_t reqIdleTimeout)
 void AsyncWebServer::_handleClient(AsyncClient* c) {
   if(c == NULL) return;
   c->setRxTimeout(_reqIdleTimeout);
+  c->setAckTimeout(_reqAckTimeout);
   AsyncWebRequest *r = new AsyncWebRequest(*this, *c);
   if(r == NULL) delete c;
 }

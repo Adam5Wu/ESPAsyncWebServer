@@ -27,8 +27,6 @@ extern "C" {
   #include "user_interface.h"
 }
 
-#define MIN_FREE_HEAP  8192
-
 static String _PlatformAnnotation;
 
 String const& GetPlatformAnnotation(void) {
@@ -144,13 +142,17 @@ AsyncSimpleResponse::AsyncSimpleResponse(int code)
 void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
   AsyncWebResponse::_respond(request);
 
-  _assembleHead();
-  _state = RESPONSE_STATUS;
-  // ASSUMPTION: status line is ALWAYS shorter than sendbuf
-  // TRUE with current implementation (TCP_SND_BUF = 2*TCP_MSS, and TCP_MSS = 1460)
-  _sendbuf = (uint8_t*)_status.begin();
-  _bufLen = _status.length();
-  _ack(0, 0);
+  if (_state == RESPONSE_SETUP) {
+    _assembleHead();
+    _state = RESPONSE_STATUS;
+    // ASSUMPTION: status line is ALWAYS shorter than TCP_SND_BUF
+    // TRUE with current implementation (TCP_SND_BUF = 2*TCP_MSS, and TCP_MSS = 1460)
+    _sendbuf = (uint8_t*)_status.begin();
+    _bufLen = _status.length();
+  } else {
+    ESPWS_DEBUG("[%s] Unexpected response state: %s", _stateToString());
+    _state = RESPONSE_FAILED;
+  }
 }
 
 void AsyncSimpleResponse::_assembleHead(void) {
@@ -186,19 +188,34 @@ void AsyncSimpleResponse::addHeader(const char *name, const char *value) {
   _headers.concat("\r\n",2);
 }
 
-size_t AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
+void AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
   _inFlightLength -= len;
+  if (_waitack() && !_inFlightLength) {
+    // All data acked, now we are done!
+    ESPWS_DEBUGV("[%s] All data acked, finalizing\n", _request->_remoteIdent.c_str());
+    _requestComplete();
+  }
+}
+
+size_t AsyncSimpleResponse::_process(size_t resShare) {
+  ESPWS_DEBUGVV("[%s] Processing share %d\n", _request->_remoteIdent.c_str(), resShare);
   size_t written = 0;
-  while (_sending() && (ESP.getFreeHeap() > MIN_FREE_HEAP) && _prepareSendBuf()) {
+  while (_sending() && resShare && _prepareSendBuf(resShare)) {
     size_t sendLen = _request->_client.add((const char*)&_sendbuf[_bufSent], _bufLen);
     if (sendLen) {
-      ESPWS_DEBUGVV("[%s] Sent out %d of %d\n", _request->_remoteIdent.c_str(), sendLen,_bufLen);
+      ESPWS_DEBUGVV("[%s] Queued %d of %d\n", _request->_remoteIdent.c_str(), sendLen, _bufLen);
       written += sendLen;
       _bufSent += sendLen;
+      resShare -= sendLen;
       if (!(_bufLen-= sendLen))
-        _releaseSendBuf();
-    } else break;
+        _releaseSendBuf(true);
+    } else {
+      ESPWS_DEBUGVV("[%s] Pipe congested, %d share left\n", _request->_remoteIdent.c_str(), resShare);
+      break;
+    }
   }
+  // If all prepared data are sent, no need to occupy memory
+  if (!_bufLen) _releaseSendBuf();
   if (written) {
     // ASSUMPTION: No error that concerns us will happen
     // TRUE with current implementation (error code is only possible when nothing to send)
@@ -206,25 +223,15 @@ size_t AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
     _inFlightLength += written;
     ESPWS_DEBUGVV("[%s] In-flight %d\n", _request->_remoteIdent.c_str(), _inFlightLength);
   }
-
-  if (_waitack() && !_inFlightLength) {
-    // All data acked, now we are done!
-    ESPWS_DEBUGV("[%s] All data acked\n", _request->_remoteIdent.c_str());
-    _state = RESPONSE_END;
-  }
-  if (_finished()) {
-    ESPWS_DEBUGV("[%s] Finalizing connection\n", _request->_remoteIdent.c_str());
-    _requestCleanup();
-  }
   return written;
 }
 
-bool AsyncSimpleResponse::_prepareSendBuf() {
+bool AsyncSimpleResponse::_prepareSendBuf(size_t resShare) {
   while (!_sendbuf) {
-    size_t space = _request->_client.space();
-    if (space < TCP_MSS/4) {
+    size_t space = std::min(_request->_client.space(), resShare);
+    if (space < resShare/2 && space < TCP_MSS/4) {
       // Send buffer too small, wait for it to grow bigger
-      ESPWS_DEBUGVV("[%s] Wait for more send buffer\n", _request->_remoteIdent.c_str());
+      ESPWS_DEBUGVV("[%s] Wait for larger send buffer\n", _request->_remoteIdent.c_str());
       break;
     }
     _bufSent = 0;
@@ -365,8 +372,10 @@ size_t AsyncPrintResponse::write(const uint8_t *data, size_t len){
  * Buffered (abstract) Content Response
  * */
 
+#define STAGEBUF_SIZE 512
+
 AsyncBufferedResponse::AsyncBufferedResponse(int code, const String& contentType)
-  : AsyncBasicResponse(code, contentType)
+  : AsyncBasicResponse(code, contentType), _stashbuf(NULL)
 {}
 
 bool AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
@@ -377,9 +386,9 @@ bool AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
   _bufLen = (space < bufToSend)? space : bufToSend;
   ESPWS_DEBUGV("[%s] Preparing %d / %d\n", _request->_remoteIdent.c_str(), _bufLen, bufToSend);
 
-  _sendbuf = (uint8_t*)malloc(_bufLen);
+  _sendbuf = _stashbuf? _stashbuf : (_stashbuf = (uint8_t*)malloc(STAGEBUF_SIZE));
   if (_sendbuf) {
-    _bufLen = _fillBuffer((uint8_t*)_sendbuf, _bufLen);
+    _bufLen = _fillBuffer((uint8_t*)_sendbuf, _bufLen < STAGEBUF_SIZE? _bufLen : STAGEBUF_SIZE);
     _bufPrepared+= _bufLen;
   } else {
     ESPWS_DEBUGV("[%s] Buffer allocation failed!\n", _request->_remoteIdent.c_str());
@@ -387,9 +396,11 @@ bool AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
   return true;
 }
 
-void AsyncBufferedResponse::_releaseSendBuf(void) {
-  if (_state > RESPONSE_HEADERS)
-    free((void*)_sendbuf);
+void AsyncBufferedResponse::_releaseSendBuf(bool more) {
+  if (!more) {
+    free((void*)_stashbuf);
+    _stashbuf = NULL;
+  }
   _sendbuf = NULL;
 }
 
@@ -402,7 +413,6 @@ AsyncFileResponse::AsyncFileResponse(File const& content, const String& path, co
   , _content(content)
 {
   if (_content) {
-    ESPWS_DEBUGV("[%s] Response file '%s'\n", _request->_remoteIdent.c_str(), path.c_str());
     _contentLength = _content.size();
 
     if (contentType.empty()) {
@@ -429,9 +439,6 @@ AsyncFileResponse::AsyncFileResponse(File const& content, const String& path, co
       else if (extension == "zip") _contentType = "application/zip";
       else if (extension == "gz") _contentType = "application/x-gzip";
       else _contentType = "application/octet-stream";
-
-      ESPWS_DEBUGVV("[%s] Extension '%s', MIME '%s'\n", _request->_remoteIdent.c_str(),
-                    extension.c_str(), _contentType.c_str());
     }
 
     if (download) {
@@ -467,7 +474,6 @@ size_t AsyncFileResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
   if (_contentLength == -1 && !outLen) {
     _contentLength = 0; // Stops fillBuffer from being called again
     _state = RESPONSE_WAIT_ACK;
-    return 0;
   }
   return outLen;
 }
@@ -557,13 +563,18 @@ void AsyncChunkedResponse::_assembleHead(void){
   AsyncBasicResponse::_assembleHead();
 }
 
+bool AsyncChunkedResponse::_prepareContentSendBuf(size_t space) {
+  // Make sure the buffer we are going to prepare is reasonable
+  if (space <= 32) return false; // Too small to worth the effort
+  if (space > 0x2000) space = 0x2000; // Too big to work with (don't want to starve others!)
+
+  return AsyncBufferedResponse::_prepareContentSendBuf(space);
+}
+
 static const uint8_t HexLookup[] =
 { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
 
 size_t AsyncChunkedResponse::_fillBuffer(uint8_t *buf, size_t maxLen){
-  if (maxLen <= 32) return 0; // Buffer too small to worth the effort
-  if (maxLen > 0x2000+8) maxLen = 0x2000+8;
-
   size_t chunkLen = _callback(buf+6, maxLen-8, _bufPrepared-(8*_chunkCnt));
   // Encapsulate chunk
   buf[0] = HexLookup[(chunkLen >> 12) & 0xF];

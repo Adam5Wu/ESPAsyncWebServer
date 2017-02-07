@@ -29,14 +29,6 @@
 
 #include "StringArray.h"
 
-#if defined(ESP31B)
-#include <ESP31BWiFi.h>
-#elif defined(ESP8266)
-#include <ESP8266WiFi.h>
-#else
-#error Platform not supported
-#endif
-
 #define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
 #define ESPWS_DEBUG_LEVEL 1
 
@@ -64,7 +56,8 @@
 #define ESPWS_DEBUGVV(...) Serial.printf(__VA_ARGS__)
 #endif
 
-#define DEFAULT_REQIDLE_TIMEOUT   5
+#define DEFAULT_IDLE_TIMEOUT      30
+#define DEFAULT_ACK_TIMEOUT       30
 #define DEFAULT_REALM             "ESP8266"
 #define DEFAULT_CACHE_CTRL        "public, no-cache"
 #define DEFAULT_INDEX_FILE        "index.htm"
@@ -129,7 +122,8 @@ typedef enum {
   REQUEST_BODY,
   REQUEST_RECEIVED,
   REQUEST_RESPONSE,
-  REQUEST_ERROR
+  REQUEST_ERROR,
+  REQUEST_FINALIZE
 } WebServerRequestState;
 
 typedef enum {
@@ -172,7 +166,6 @@ class AsyncWebRequest {
     LinkedList<AsyncWebHeader> _headers;
     LinkedList<AsyncWebQuery> _queries;
 
-    void _onPoll();
     void _onAck(size_t len, uint32_t time);
     void _onError(int8_t error);
     void _onTimeout(uint32_t time);
@@ -192,6 +185,8 @@ class AsyncWebRequest {
 
     AsyncWebRequest(AsyncWebServer const &server, AsyncClient &client);
     ~AsyncWebRequest();
+
+    bool _makeProgress(size_t resShare, bool timer);
 
     uint8_t version() const { return _version; }
     WebRequestMethodComposite method() const { return _method; }
@@ -282,18 +277,19 @@ class AsyncWebResponse {
     AsyncWebRequest *_request;
 
     const char* _responseCodeToString(void);
+    AsyncWebResponse(int code);
 
   public:
-    AsyncWebResponse(int code);
     virtual ~AsyncWebResponse() {}
 
     virtual void setCode(int code);
     virtual void addHeader(const char *name, const char *value) = 0;
 
     virtual void _respond(AsyncWebRequest &request);
-    virtual size_t _ack(size_t len, uint32_t time) = 0;
+    virtual void _ack(size_t len, uint32_t time) = 0;
+    virtual size_t _process(size_t resShare) = 0;
 
-    inline void MUSTNOTSTART(void) const { while (_started()) panic(); }
+    inline void MUSTNOTSTART(void) const { ESPWS_DEBUGDO(while (_started()) panic()); }
     inline bool _started(void) const { return _state > RESPONSE_SETUP; }
     inline bool _sending(void) const { return _started() && _state < RESPONSE_WAIT_ACK; }
     inline bool _waitack(void) const { return _state == RESPONSE_WAIT_ACK; }
@@ -374,6 +370,7 @@ class AsyncWebServer {
   protected:
     AsyncServer _server;
     uint32_t _reqIdleTimeout;
+    uint32_t _reqAckTimeout;
     LinkedList<AsyncWebRewrite*> _rewrites;
     LinkedList<AsyncWebHandler*> _handlers;
 
@@ -420,8 +417,8 @@ class AsyncWebServer {
   public:
     static char const *VERTOKEN;
 
-    AsyncWebServer(uint16_t port, uint32_t reqIdleTimeout = DEFAULT_REQIDLE_TIMEOUT);
-    ~AsyncWebServer() { }
+    AsyncWebServer(uint16_t port, uint32_t reqIdleTimeout = DEFAULT_IDLE_TIMEOUT, uint32_t reqAckTimeout = DEFAULT_ACK_TIMEOUT);
+    ~AsyncWebServer() {}
 
     void begin() { _server.begin(); }
 #if ASYNC_TCP_SSL_ENABLED
@@ -470,7 +467,6 @@ class AsyncWebServer {
 #endif
     }
 
-    void _handleDisconnect(AsyncWebRequest *request) const { delete request; }
     void _rewriteRequest(AsyncWebRequest &request) const;
     void _attachHandler(AsyncWebRequest &request) const;
 };

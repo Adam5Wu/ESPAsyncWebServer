@@ -236,9 +236,6 @@ AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource &server)
   addHeader("Connection", "keep-alive");
 }
 
-void AsyncEventSourceResponse::_requestCleanup(void) {
-  if (_state == RESPONSE_END)
-    new AsyncEventSourceClient(_request, _server);
-  else
-    AsyncSimpleResponse::_requestCleanup();
+void AsyncEventSourceResponse::_requestComplete(void) {
+  new AsyncEventSourceClient(_request, _server);
 }

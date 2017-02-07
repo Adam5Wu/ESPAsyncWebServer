@@ -218,7 +218,7 @@ class AsyncWebSocketResponse: public AsyncSimpleResponse {
   private:
     AsyncWebSocket &_server;
   protected:
-    virtual void _requestCleanup(void) override;
+    virtual void _requestComplete(void) override;
   public:
     AsyncWebSocketResponse(const String& key, AsyncWebSocket &server);
 };
