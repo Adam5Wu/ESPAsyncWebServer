@@ -579,9 +579,6 @@ void AsyncChunkedResponse::_prepareContentSendBuf(size_t space) {
   AsyncBufferedResponse::_prepareContentSendBuf(space);
 }
 
-static const uint8_t HexLookup[] =
-{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
-
 size_t AsyncChunkedResponse::_fillBuffer(uint8_t *buf, size_t maxLen){
   size_t chunkLen = _callback(buf+6, maxLen-8, _bufPrepared-(8*_chunkCnt));
   // Encapsulate chunk

@@ -31,12 +31,11 @@ extern "C" {
   #include "user_interface.h"
 }
 
-String urlDecode(char *buf) {
+String urlDecode(char const *buf, size_t len) {
   char temp[] = "xx";
 
-  // Allocate the string internal buffer - never longer from source text
-  String Ret(buf);
-  Ret.clear();
+  String Ret;
+  Ret.reserve(len);
   while (*buf){
     if ((*buf == '%') && buf[1] && buf[2]){
       temp[0] = *++buf;
@@ -46,6 +45,24 @@ String urlDecode(char *buf) {
       Ret.concat(' ');
     } else {
       Ret.concat(*buf);  // normal ascii char
+    }
+    buf++;
+  }
+  return Ret;
+}
+
+String urlEncode(char const *buf, size_t len) {
+  String Ret;
+  Ret.reserve(len);
+  while (*buf){
+    if (isalnum(*buf) || *buf == '-' || *buf == '_' || *buf == '.' || *buf == '~') {
+      Ret.concat(*buf);  // normal ascii char
+    } else if (*buf == ' ') {
+      Ret.concat('+');
+    } else {
+      Ret.concat('%');
+      Ret.concat(HexLookup[(*buf >> 4) & 0xF]);
+      Ret.concat(HexLookup[(*buf >> 0) & 0xF]);
     }
     buf++;
   }
@@ -307,6 +324,8 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
     _authorization.clear(true);
     _headers.clear();
     _queries.clear();
+    _oUrl.clear(true);
+    _oQuery.clear(true);
   }
 
   if (_state == REQUEST_RESPONSE) {
@@ -321,10 +340,15 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 void AsyncWebRequest::_setUrl(String && url) {
   int indexQuery = url.indexOf('?');
   if (indexQuery > 0){
+    _oQuery = &url[indexQuery];
     _parseQueries(&url[indexQuery+1]);
     url.remove(indexQuery);
-  } else _queries.clear();
-  _url = std::move(url);
+  } else {
+    _queries.clear();
+    _oQuery.clear(true);
+  }
+  _url = urlDecode(url.c_str(), url.length());
+  _oUrl = std::move(url);
 }
 
 void AsyncWebRequest::_parseQueries(char *buf){
@@ -348,7 +372,7 @@ void AsyncWebRequest::_parseQueries(char *buf){
     if (*value) *value++ = '\0';
 
     ESPWS_DEBUGVV("[%s] Query [%s] = '%s'\n", _remoteIdent.c_str(), name, value);
-    _queries.append(AsyncWebQuery(name, value));
+    _queries.append(AsyncWebQuery(urlDecode(name,value-name), urlDecode(value,buf-value)));
   }
 }
 

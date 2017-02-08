@@ -131,7 +131,9 @@ typedef enum {
 } WebServerRequestAuth;
 
 extern String const EMPTY_STRING;
-String urlDecode(char *buf);
+extern uint8_t const HexLookup[];
+String urlDecode(char const *buf, size_t len);
+String urlEncode(char const *buf, size_t len);
 
 /*
  * REQUEST :: Each incoming Client is wrapped inside a Request and both live together until disconnect
@@ -155,6 +157,9 @@ class AsyncWebRequest {
     uint8_t _version;
     WebRequestMethodComposite _method;
     String _url;
+    String _oUrl;
+    String _oQuery;
+
     String _host;
     String _contentType;
     size_t _contentLength;
@@ -193,6 +198,8 @@ class AsyncWebRequest {
     WebRequestMethodComposite method() const { return _method; }
     const char * methodToString() const;
     const String& url() const { return _url; }
+    const String& oUrl() const { return _oUrl; }
+    const String& oQuery() const { return _oQuery; }
 
     const String& host() const { return _host; }
     bool keepAlive() const { return _keepAlive; }

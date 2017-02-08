@@ -70,7 +70,9 @@ bool AsyncRequestHeadParser::_parseLine(void) {
             if (_request._contentLength) {
             // Switch parser
             __reqState(RESPONSE_CONTENT);
-            __reqParser(new AsyncRequestContentParser(_request));
+            if (!_request.contentType().startWith("multipart/"))
+              __reqParser(new AsyncRequestUnibodyContentParser(_request));
+            else __reqParser(new AsyncRequestMultipartContentParser(_request));
           } else
 #endif
           {
@@ -120,7 +122,7 @@ bool AsyncRequestHeadParser::_parseReqStart(void) {
   }
 
   __setVersion(memcmp(&_temp[indexVer+1], "HTTP/1.0", 8)? 1 : 0);
-  __setUrl(urlDecode(&_temp[indexUrl+1]));
+  __setUrl(&_temp[indexUrl+1]);
 
   // Per RFC, HTTP 1.1 connections are persistent by default
   if (_request.version()) __setKeepAlive(true);

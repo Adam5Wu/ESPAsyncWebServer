@@ -28,8 +28,12 @@
 class AsyncPathURIWebHandler: public AsyncWebHandler {
   protected:
     // May not be compliant with standard (no protocol and server), but seems to work OK with most browsers
-    void _redirectDir(AsyncWebRequest &request)
-    { request.redirect(request.url()+'/'); }
+    void _redirectDir(AsyncWebRequest &request) {
+      String newLocation = request.oUrl()+'/';
+      if (!request.oQuery().empty())
+        newLocation.concat(request.oQuery());
+      request.redirect(newLocation);
+    }
 
   public:
     String const path;

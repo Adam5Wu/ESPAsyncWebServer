@@ -34,6 +34,8 @@
 #endif
 
 String const EMPTY_STRING;
+uint8_t const HexLookup[] =
+{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
 
 bool ON_STA_FILTER(AsyncWebRequest const &request) {
   return WiFi.localIP() == request._client.localIP();
