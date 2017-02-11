@@ -67,12 +67,14 @@ bool AsyncRequestHeadParser::_parseLine(void) {
         // Check if we can continue
         if (__reqHandler()->_checkContinue(_request, _expectingContinue)) {
 #ifdef HANDLE_REQUEST_CONTENT
-            if (_request._contentLength) {
+          if (_request.contentLength()) {
             // Switch parser
-            __reqState(RESPONSE_CONTENT);
-            if (!_request.contentType().startWith("multipart/"))
-              __reqParser(new AsyncRequestUnibodyContentParser(_request));
-            else __reqParser(new AsyncRequestMultipartContentParser(_request));
+            AsyncWebParser* newParser = NULL;
+            for (auto& item : BodyParserRegistry) {
+              if (newParser = item(_request)) break;
+            }
+            __reqParser(newParser? newParser : new AsyncRequestPassthroughContentParser(_request));
+            __reqState(REQUEST_BODY);
           } else
 #endif
           {
@@ -228,14 +230,49 @@ void AsyncRequestHeadParser::_parse(void *&buf, size_t &len) {
     // Found new line - extract it and parse
     _temp.concat(str, i++);
     _temp.trim();
-    len-= i;
 
+    len-= i;
+    buf = str+= i;
     if (!_parseLine()) break;
     _temp.clear();
-    if (len) {
-      // Still have more buffer to process
-      buf = str+= i;
-      continue;
+     // Check if still have more buffer to process
+    if (len) continue;
+  }
+}
+
+#ifdef HANDLE_REQUEST_CONTENT
+
+LinkedList<ArBodyParserMaker> BodyParserRegistry(NULL, {
+#ifdef HANDLE_REQUEST_CONTENT_SIMPLEFORM
+[](AsyncWebRequest &request) {
+  return request.contentType("application/x-www-form-urlencoded")?
+    new AsyncRequestSimpleFormContentParser(request): NULL;
+},
+#endif
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+[](AsyncWebRequest &request) {
+  return request.contentType().startsWith("multipart/form-data;",20,0,true)?
+    new AsyncRequestMultipartFormContentParser(request): NULL;
+},
+#endif
+});
+
+void AsyncRequestPassthroughContentParser::_parse(void *&buf, size_t &len) {
+  // Simply track the upload progress and invoke handler
+  if (!__reqHandler()->_handleBody(_request, _curOfs, buf, len)) {
+    ESPWS_DEBUG("[%s] WARNING: Request body handling terminated abnormally!\n", _request._remoteIdent.c_str());
+    __reqState(REQUEST_ERROR);
+  } else {
+    _curOfs+= len;
+    len = 0;
+
+    if (_curOfs >= _request.contentLength()) {
+      __reqState(REQUEST_RECEIVED);
+      __reqParser(NULL);
+      // We are done!
+      delete this;
     }
   }
 }
+
+#endif

@@ -18,8 +18,8 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#ifndef LINKEDLIST_H_
-#define LINKEDLIST_H_
+#ifndef LinkedList_H_
+#define LinkedList_H_
 
 #include "stddef.h"
 
@@ -86,6 +86,8 @@ class LinkedList {
   public:
     LinkedList(OnRemove const &onRemove)
     : _head(NULL), _tail(NULL), _count(0), _onRemove(onRemove) {}
+    LinkedList(OnRemove const &onRemove, std::initializer_list<T> items)
+    : LinkedList(onRemove) { for (auto& item : items) append(item); }
     virtual ~LinkedList() { clear(); }
 
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
@@ -194,4 +196,4 @@ class LinkedList {
     }
 };
 
-#endif /* LINKEDLIST_H_ */
+#endif /* LinkedList_H_ */

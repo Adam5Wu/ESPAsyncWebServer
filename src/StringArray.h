@@ -18,11 +18,11 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#ifndef STRINGARRAY_H_
-#define STRINGARRAY_H_
+#ifndef StringArray_H_
+#define StringArray_H_
 
-#include "LinkedList.h"
 #include "WString.h"
+#include "LinkedList.h"
 
 class StringArray : public LinkedList<String> {
   public:
@@ -41,4 +41,4 @@ class StringArray : public LinkedList<String> {
     }
 };
 
-#endif /* STRINGARRAY_H_ */
+#endif /* StringArray_H_ */

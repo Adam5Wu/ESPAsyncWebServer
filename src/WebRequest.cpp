@@ -18,6 +18,7 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
+
 #include "ESPAsyncWebServer.h"
 #include "WebRequestParsers.h"
 #include "WebResponseImpl.h"
@@ -271,7 +272,10 @@ void AsyncWebRequest::_onAck(size_t len, uint32_t time){
   ESPWS_DEBUGVV("[%s] ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
   if(_response && !_response->_finished()) {
     _response->_ack(len, time);
-    if (!_response->_sending() && _keepAlive) _recycleClient();
+    if (!_response->_sending() && _keepAlive) {
+      // Recycle for another request
+      _recycleClient();
+    }
   }
 }
 

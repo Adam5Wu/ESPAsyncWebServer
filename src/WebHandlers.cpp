@@ -18,7 +18,7 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#include "ESPAsyncWebServer.h"
+
 #include "WebHandlerImpl.h"
 
 /*
@@ -43,7 +43,7 @@ bool AsyncPathURIWebHandler::_canHandle(AsyncWebRequest const &request) {
   if (!(method & request.method())) return false;
 
   if (request.url().startsWith(path)) {
-    ESPWS_DEBUGVV("[%s] Match Path: '%s'\n", request._remoteIdent.c_str(), request.url().c_str());
+    ESPWS_DEBUGVV("[%s] '%s' matches '%s'\n", request._remoteIdent.c_str(), path.c_str(), request.url().c_str());
     return true;
   }
 

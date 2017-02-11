@@ -17,10 +17,9 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#ifndef ASYNCWEBREQUESTPARSER_H_
-#define ASYNCWEBREQUESTPARSER_H_
+#ifndef AsyncWebRequestParser_H_
+#define AsyncWebRequestParser_H_
 
-#include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 
 /*
@@ -89,23 +88,26 @@ class AsyncRequestHeadParser: public AsyncWebParser {
 };
 
 #ifdef HANDLE_REQUEST_CONTENT
+
 /*
- * UNIBODY CONTENT PARSER :: Handles parsing of monolithic request body content
+ * PASS-THROUGH CONTENT PARSER :: Pass-through parsing of request body content to handler
  * */
-class AsyncRequestUnibodyContentParser: public AsyncWebParser {
+class AsyncRequestPassthroughContentParser: public AsyncWebParser {
+  protected:
+    size_t _curOfs;
+
   public:
+    AsyncRequestPassthroughContentParser(AsyncWebRequest &request)
+    : AsyncWebParser(request), _curOfs(0) {}
+
     virtual void _parse(void *&buf, size_t &len) override;
 };
 
-/*
-* MULTIPART CONTENT PARSER :: Handles parsing of multipart request body content
-* */
-class AsyncRequestMultipartContentParser: public AsyncWebParser {
-  private:
-    String _boundary;
+#include "LinkedList.h"
 
-  public:
-    virtual void _parse(void *&buf, size_t &len) override;
+typedef std::function<AsyncWebParser*(AsyncWebRequest &request)> ArBodyParserMaker;
+extern LinkedList<ArBodyParserMaker> BodyParserRegistry;
+
  /*
    if (strncmp(value.begin(), "multipart/", 10) == 0) {
    int typeEnd = value.indexOf(';', 10);
@@ -120,8 +122,7 @@ class AsyncRequestMultipartContentParser: public AsyncWebParser {
    _request._contentType.c_str(), _boundary.c_str());
  } else {
   */
-};
 
 #endif
 
-#endif /* ASYNCWEBREQUESTPARSER_H_ */
+#endif /* AsyncWebRequestParser_H_ */

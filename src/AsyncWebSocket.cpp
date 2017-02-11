@@ -18,10 +18,9 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#include "Arduino.h"
-#include "AsyncWebSocket.h"
 
 #include <libb64/cencode.h>
+#include "AsyncWebSocket.h"
 
 #ifndef ESP8266
 extern "C" {

@@ -56,6 +56,8 @@
 #define ESPWS_DEBUGVV(...) Serial.printf(__VA_ARGS__)
 #endif
 
+#define HANDLE_REQUEST_CONTENT
+
 #define DEFAULT_IDLE_TIMEOUT      10        // Unit s
 #define DEFAULT_ACK_TIMEOUT       10 * 1000 // Unit ms
 #define DEFAULT_REALM             "ESP8266"
@@ -205,6 +207,7 @@ class AsyncWebRequest {
     bool keepAlive() const { return _keepAlive; }
 
     const String& contentType() const { return _contentType; }
+    bool contentType(const String& type) const { return _contentType.equalsIgnoreCase(type); }
     size_t contentLength() const { return _contentLength; }
 
     WebServerRequestAuth authType(void) const { return _authType; }
@@ -225,6 +228,7 @@ class AsyncWebRequest {
     { _queries.get_if(Pred); }
 
     void send(AsyncWebResponse *response);
+    void noKeepAlive(void) { _keepAlive = false; }
 
     // Response short-hands
     void redirect(const String& url);
@@ -311,7 +315,7 @@ class AsyncWebResponse {
  * FILTER :: Callback to filter AsyncWebRewrite and AsyncWebHandler (done by the Server)
  * */
 
-typedef std::function<bool(AsyncWebRequest const &request)> ArRequestFilterFunction;
+typedef std::function<bool(AsyncWebRequest const&)> ArRequestFilterFunction;
 
 bool ON_STA_FILTER(AsyncWebRequest const &request);
 bool ON_AP_FILTER(AsyncWebRequest const &request);
@@ -348,10 +352,9 @@ class AsyncWebRewrite : public AsyncWebFilterable {
 /*
  * HANDLER :: One instance can be attached to any Request (done by the Server)
  * */
-typedef std::function<void(AsyncWebRequest &request)> ArRequestHandlerFunction;
+typedef std::function<void(AsyncWebRequest&)> ArRequestHandlerFunction;
 #ifdef HANDLE_REQUEST_CONTENT
-  typedef std::function<void(AsyncWebRequest &request, size_t index, uint8_t *buf,
-                             size_t size, size_t total)> ArBodyHandlerFunction;
+typedef std::function<bool(AsyncWebRequest&, size_t, void*, size_t)> ArBodyHandlerFunction;
 #endif
 
 class AsyncWebHandler : public AsyncWebFilterable {
@@ -362,8 +365,7 @@ class AsyncWebHandler : public AsyncWebFilterable {
 
     virtual void _handleRequest(AsyncWebRequest &request) = 0;
 #ifdef HANDLE_REQUEST_CONTENT
-    virtual void _handleBody(AsyncWebRequest &request, size_t index, uint8_t *buf,
-                             size_t size, size_t total) = 0;
+    virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size) = 0;
 #endif
 };
 
@@ -408,9 +410,8 @@ class AsyncWebServer {
         { if (onRequest) onRequest(request); }
 
 #ifdef HANDLE_REQUEST_CONTENT
-        virtual void _handleBody(AsyncWebRequest &request, size_t index, uint8_t *buf,
-                                 size_t size, size_t total)
-        { if (onBody) onBody(request, index, buf, size, total); }
+        virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size)
+        { return onBody? onBody(request, offset, buf, size) : true; }
 #endif
     } _catchAllHandler;
 
@@ -479,8 +480,5 @@ class AsyncWebServer {
 
 #include "WebResponseImpl.h"
 #include "WebHandlerImpl.h"
-
-#include "AsyncWebSocket.h"
-#include "AsyncEventSource.h"
 
 #endif /* _AsyncWebServer_H_ */

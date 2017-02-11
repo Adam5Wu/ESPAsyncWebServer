@@ -18,17 +18,14 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#ifndef ASYNCEVENTSOURCE_H_
-#define ASYNCEVENTSOURCE_H_
+#ifndef AsyncEventSource_H_
+#define AsyncEventSource_H_
 
-#include <Arduino.h>
 #include <ESPAsyncTCP.h>
+
 #include <ESPAsyncWebServer.h>
 
 class AsyncEventSource;
-class AsyncEventSourceResponse;
-class AsyncEventSourceClient;
-typedef std::function<void(AsyncEventSourceClient *client)> ArEventHandlerFunction;
 
 class AsyncEventSourceClient {
   private:
@@ -51,6 +48,8 @@ class AsyncEventSourceClient {
     void _onTimeout(uint32_t time);
     void _onDisconnect();
 };
+
+typedef std::function<void(AsyncEventSourceClient*)> ArEventHandlerFunction;
 
 class AsyncEventSource: public AsyncWebHandler {
   private:
@@ -85,4 +84,4 @@ class AsyncEventSourceResponse: public AsyncBasicResponse {
 };
 
 
-#endif /* ASYNCEVENTSOURCE_H_ */
+#endif /* AsyncEventSource_H_ */

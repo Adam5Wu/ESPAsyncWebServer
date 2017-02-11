@@ -18,17 +18,12 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#ifndef ASYNCWEBSOCKET_H_
-#define ASYNCWEBSOCKET_H_
+#ifndef AsyncWebSocket_H_
+#define AsyncWebSocket_H_
 
-#include <Arduino.h>
 #include <ESPAsyncTCP.h>
-#include <ESPAsyncWebServer.h>
 
-class AsyncWebSocket;
-class AsyncWebSocketResponse;
-class AsyncWebSocketClient;
-class AsyncWebSocketControl;
+#include <ESPAsyncWebServer.h>
 
 typedef struct {
     uint8_t message_opcode;
@@ -59,6 +54,9 @@ class AsyncWebSocketMessage {
     virtual bool finished(){ return _status != WS_MSG_SENDING; }
     virtual bool betweenFrames() const { return false; }
 };
+
+class AsyncWebSocket;
+class AsyncWebSocketControl;
 
 class AsyncWebSocketClient {
   private:
@@ -133,7 +131,7 @@ class AsyncWebSocketClient {
     void _onData(void *buf, size_t plen);
 };
 
-typedef std::function<void(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len)> AwsEventHandler;
+typedef std::function<void(AsyncWebSocket*, AsyncWebSocketClient*, AwsEventType, void*, uint8_t*, size_t)> AwsEventHandler;
 
 //WebServer Handler implementation that plays the role of a socket server
 class AsyncWebSocket: public AsyncWebHandler {
@@ -224,4 +222,4 @@ class AsyncWebSocketResponse: public AsyncSimpleResponse {
 };
 
 
-#endif /* ASYNCWEBSOCKET_H_ */
+#endif /* AsyncWebSocket_H_ */

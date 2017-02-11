@@ -19,7 +19,6 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-#include "ESPAsyncWebServer.h"
 #include "WebResponseImpl.h"
 
 extern "C" {
@@ -106,6 +105,8 @@ void AsyncWebResponse::setCode(int code) {
 
 void AsyncWebResponse::_respond(AsyncWebRequest &request) {
   _request = &request;
+  // Disable connection keep-alive if response is an error
+  if (_code < 200 || _code >= 400) request.noKeepAlive();
 }
 
 ESPWS_DEBUGDO(const char* AsyncWebResponse::_stateToString(void) const {

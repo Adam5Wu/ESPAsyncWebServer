@@ -19,10 +19,10 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
-#ifndef WEB_AUTHENTICATION_H_
-#define WEB_AUTHENTICATION_H_
+#ifndef WebAuthentication_H_
+#define WebAuthentication_H_
 
-#include "Arduino.h"
+#include <ESPAsyncWebServer.h>
 
 bool checkBasicAuthentication(const char * header, const char * username, const char * password);
 String requestDigestAuthentication(const char * realm);

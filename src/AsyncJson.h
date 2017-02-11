@@ -19,10 +19,12 @@
   });
 
 */
-#ifndef ASYNC_JSON_H_
-#define ASYNC_JSON_H_
+#ifndef AsyncJson_H_
+#define AsyncJson_H_
 
 #include <ArduinoJson.h>
+#include <ESPAsyncWebServer.h>
+#include "WebResponseImpl.h"
 
 /*
  * Json Response

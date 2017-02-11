@@ -18,12 +18,14 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#ifndef ASYNCWEBSERVERHANDLERIMPL_H_
-#define ASYNCWEBSERVERHANDLERIMPL_H_
+#ifndef AsynWebHandlerImpl_H_
+#define AsynWebHandlerImpl_H_
 
 #include "stddef.h"
 #include <time.h>
 #include <FS.h>
+
+#include <ESPAsyncWebServer.h>
 
 class AsyncPathURIWebHandler: public AsyncWebHandler {
   protected:
@@ -73,10 +75,9 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
     virtual void _handleRequest(AsyncWebRequest &request) override;
 
 #ifdef HANDLE_REQUEST_CONTENT
-    virtual void _handleBody(AsyncWebRequest &request, size_t index, uint8_t *buf,
-                            size_t size, size_t total) override {
+    virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size) override {
       // Do not expect request body
-      request.send(400);
+      return false;
     }
 #endif
 };
@@ -101,12 +102,10 @@ class AsyncCallbackWebHandler: public AsyncPathURIWebHandler {
     }
 
 #ifdef HANDLE_REQUEST_CONTENT
-    virtual void _handleBody(AsyncWebRequest &request, size_t index, uint8_t *buf,
-                            size_t size, size_t total) override {
-      if (onBody) onBody(request, index, buf, size, total);
-      else request.send(500);
+    virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size) override {
+      return onBody? onBody(request, offset, buf, size) : false;
     }
 #endif
 };
 
-#endif /* ASYNCWEBSERVERHANDLERIMPL_H_ */
+#endif /* AsynWebHandlerImpl_H_ */

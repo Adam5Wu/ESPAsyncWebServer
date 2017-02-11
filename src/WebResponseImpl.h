@@ -18,10 +18,12 @@
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
-#ifndef ASYNCWEBSERVERRESPONSEIMPL_H_
-#define ASYNCWEBSERVERRESPONSEIMPL_H_
+#ifndef AsyncWebResponseImpl_H_
+#define AsyncWebResponseImpl_H_
 
-#include "StreamString.h"
+#include <StreamString.h>
+
+#include <ESPAsyncWebServer.h>
 
 class AsyncSimpleResponse: public AsyncWebResponse {
   private:
@@ -190,4 +192,4 @@ class AsyncChunkedResponse: public AsyncBufferedResponse {
     AsyncChunkedResponse(int code, AwsResponseFiller callback, const String& contentType);
 };
 
-#endif /* ASYNCWEBSERVERRESPONSEIMPL_H_ */
+#endif /* AsyncWebResponseImpl_H_ */
