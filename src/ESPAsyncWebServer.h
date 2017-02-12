@@ -30,7 +30,7 @@
 #include "StringArray.h"
 
 #define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
-#define ESPWS_DEBUG_LEVEL 1
+#define ESPWS_DEBUG_LEVEL 3
 
 #if ESPWS_DEBUG_LEVEL < 1
 #define ESPWS_DEBUGDO(...)
@@ -57,6 +57,11 @@
 #endif
 
 #define HANDLE_REQUEST_CONTENT
+#define HANDLE_REQUEST_CONTENT_SIMPLEFORM
+//#define HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+
+#define REQUEST_PARAM_MEMCACHE    1024
+#define REQUEST_PARAM_KEYMAX      128
 
 #define DEFAULT_IDLE_TIMEOUT      10        // Unit s
 #define DEFAULT_ACK_TIMEOUT       10 * 1000 // Unit ms
@@ -109,6 +114,27 @@ class AsyncWebQuery {
     : name(std::move(n)), value(std::move(v)) {}
 #endif
 };
+
+#ifdef HANDLE_REQUEST_CONTENT
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+class AsyncWebParam {
+  public:
+    String name;
+    String value;
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+    String contentType;
+    size_t contentLength;
+#endif
+
+    AsyncWebParam(const String& n, const String& v)
+    : name(n), value(v) {}
+#ifdef __GXX_EXPERIMENTAL_CXX0X__
+    AsyncWebParam(String&& n, String&& v)
+    : name(std::move(n)), value(std::move(v)) {}
+#endif
+};
+#endif
+#endif
 
 class AsyncWebServer;
 class AsyncWebParser;
@@ -172,6 +198,12 @@ class AsyncWebRequest {
     LinkedList<AsyncWebHeader> _headers;
     LinkedList<AsyncWebQuery> _queries;
 
+#ifdef HANDLE_REQUEST_CONTENT
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    LinkedList<AsyncWebParam> _params;
+#endif
+#endif
+
     void _onAck(size_t len, uint32_t time);
     void _onError(int8_t error);
     void _onTimeout(uint32_t time);
@@ -181,6 +213,22 @@ class AsyncWebRequest {
     void _setUrl(String const& url) { _setUrl(std::move(String(url))); }
     void _setUrl(String && url);
     void _parseQueries(char *buf);
+
+    template<typename T>
+    T& _addUniqueNameVal(LinkedList<T>& storage, String &name, String &value) {
+      T* qPtr = storage.get_if([&](T const &v) {
+        return name.equals(v.name);
+      });
+      if (qPtr) {
+        ESPWS_DEBUG("[%s] WARNING: Override value '%s' of duplicate key '%s'\n", _remoteIdent.c_str(),
+                    qPtr->value.c_str(), qPtr->name.c_str());
+        qPtr->value = std::move(value);
+        return *qPtr;
+      } else {
+        storage.append(T(std::move(name), std::move(value)));
+        return storage.back();
+      }
+    }
 
     void _recycleClient(void);
 
@@ -226,6 +274,17 @@ class AsyncWebRequest {
 
     void enumQueries(LinkedList<AsyncWebQuery>::Predicate const& Pred)
     { _queries.get_if(Pred); }
+
+#ifdef HANDLE_REQUEST_CONTENT
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    size_t params() const { return _params.length(); }
+    bool hasParam(const String& name) const;
+    AsyncWebParam const* getParam(const String& name) const;
+
+    void enumParams(LinkedList<AsyncWebParam>::Predicate const& Pred)
+    { _params.get_if(Pred); }
+#endif
+#endif
 
     void send(AsyncWebResponse *response);
     void noKeepAlive(void) { _keepAlive = false; }
@@ -355,6 +414,10 @@ class AsyncWebRewrite : public AsyncWebFilterable {
 typedef std::function<void(AsyncWebRequest&)> ArRequestHandlerFunction;
 #ifdef HANDLE_REQUEST_CONTENT
 typedef std::function<bool(AsyncWebRequest&, size_t, void*, size_t)> ArBodyHandlerFunction;
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+typedef std::function<bool(AsyncWebRequest&, String const&, String const&,
+                           size_t, size_t, void*, size_t)> ArParamDataHandlerFunction;
+#endif
 #endif
 
 class AsyncWebHandler : public AsyncWebFilterable {
@@ -366,6 +429,10 @@ class AsyncWebHandler : public AsyncWebFilterable {
     virtual void _handleRequest(AsyncWebRequest &request) = 0;
 #ifdef HANDLE_REQUEST_CONTENT
     virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size) = 0;
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    virtual bool _handleParamData(AsyncWebRequest &request, String const& name, String const& contentType,
+                                  size_t contentLength, size_t offset, void *buf, size_t size) = 0;
+#endif
 #endif
 };
 
@@ -403,6 +470,9 @@ class AsyncWebServer {
         ArRequestHandlerFunction onRequest;
 #ifdef HANDLE_REQUEST_CONTENT
         ArBodyHandlerFunction onBody;
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+        ArParamDataHandlerFunction onParamData;
+#endif
 #endif
 
         virtual bool _isInterestingHeader(String const& key) override { return true; }
@@ -410,8 +480,15 @@ class AsyncWebServer {
         { if (onRequest) onRequest(request); }
 
 #ifdef HANDLE_REQUEST_CONTENT
-        virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size)
+        virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size) override
         { return onBody? onBody(request, offset, buf, size) : true; }
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+        virtual bool _handleParamData(AsyncWebRequest &request, String const& name, String const& contentType,
+                                      size_t contentLength, size_t offset, void *buf, size_t size) override
+        { return onParamData? onParamData(request, name, contentType, contentLength, offset, buf, size) : true; }
+#endif
+
 #endif
     } _catchAllHandler;
 
@@ -451,6 +528,15 @@ class AsyncWebServer {
                                 WebRequestMethodComposite method,
                                 ArRequestHandlerFunction const& onRequest,
                                 ArBodyHandlerFunction const& onBody);
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    AsyncCallbackWebHandler& on(const char* uri,
+                                WebRequestMethodComposite method,
+                                ArRequestHandlerFunction const& onRequest,
+                                ArBodyHandlerFunction const& onBody,
+                                ArParamDataHandlerFunction const& onParamData);
+#endif
+
 #endif
 
     AsyncStaticWebHandler& serveStatic(const char* uri, Dir const& dir,
@@ -464,13 +550,24 @@ class AsyncWebServer {
 #ifdef HANDLE_REQUEST_CONTENT
     void catchAll(ArBodyHandlerFunction const& onBody)
     { _catchAllHandler.onBody = onBody; }
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    void catchAll(ArParamDataHandlerFunction const& onParamData)
+    { _catchAllHandler.onParamData = onParamData; }
+#endif
+
 #endif
 
     void reset() {
       //remove all writers and handlers, including catch-all handlers
       _catchAllHandler.onRequest = NULL;
 #ifdef HANDLE_REQUEST_CONTENT
-        _catchAllHandler.onBody = NULL;
+      _catchAllHandler.onBody = NULL;
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+      _catchAllHandler.onParamData = NULL;
+#endif
+
 #endif
     }
 

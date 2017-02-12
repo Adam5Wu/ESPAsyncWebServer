@@ -98,6 +98,7 @@ class LinkedList {
 
     bool isEmpty() const { return _head == NULL; }
     T& front() const { return _head->value(); }
+    T& back() const { return _tail->value(); }
     ConstIterator begin() const { return ConstIterator(_head); }
     ConstIterator end() const { return ConstIterator(NULL); }
 

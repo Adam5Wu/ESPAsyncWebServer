@@ -106,6 +106,16 @@ AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodCom
   handler.onBody = onBody;
   return handler;
 }
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction const& onRequest,
+                                            ArBodyHandlerFunction const& onBody, ArParamDataHandlerFunction const& onParamData){
+  AsyncCallbackWebHandler& handler = on(uri,method,onRequest,onBody);
+  handler.onParamData = onParamData;
+  return handler;
+}
+#endif
+
 #endif
 
 AsyncStaticWebHandler& AsyncWebServer::serveStatic(const char* uri, Dir const& dir, const char* indexFile, const char* cache_control){

@@ -164,6 +164,11 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
   //, _authorization()
   , _headers(NULL)
   , _queries(NULL)
+#ifdef HANDLE_REQUEST_CONTENT
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+  , _params(NULL)
+#endif
+#endif
   ESPWS_DEBUGDO(, _remoteIdent(c.remoteIP().toString()+':'+c.remotePort()))
 {
   ESPWS_DEBUGV("[%s] CONNECTED\n", _remoteIdent.c_str());
@@ -225,12 +230,32 @@ void AsyncWebRequest::_recycleClient(void) {
   delete _response;
   _handler = NULL;
   _response = NULL;
-  //_keepAlive = false;
-  //_version = 0;
+
+  // Note: Enable the following block of CGI-like features are to be implemented
+/*
+  _contentType.clear(true);
+  _authorization.clear(true);
+  _url.clear(true);
+  _host.clear(true);
+  _oUrl.clear(true);
+  _oQuery.clear(true);
+  _headers.clear();
+  _queries.clear();
+#ifdef HANDLE_REQUEST_CONTENT
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+  _params.clear();
+#endif
+#endif
+*/
+
   _method = 0;
   _contentLength = 0;
   _authType = AUTH_NONE;
   _state = REQUEST_SETUP;
+  // Note: the following two fields are the reasons we are here, so no need to touch
+  //_keepAlive = false;
+  //_version = 0;
+
   _client.setRxTimeout(DEFAULT_IDLE_TIMEOUT);
 }
 
@@ -324,18 +349,25 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
       _state = REQUEST_ERROR;
     }
     // Free up resources no longer needed
+    // NOTE: these resources should not be freed if CGI-like features are to be implemented
     _contentType.clear(true);
     _authorization.clear(true);
-    _headers.clear();
-    _queries.clear();
     _oUrl.clear(true);
     _oQuery.clear(true);
+    _headers.clear();
+    _queries.clear();
+#ifdef HANDLE_REQUEST_CONTENT
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    _params.clear();
+#endif
+#endif
   }
 
   if (_state == REQUEST_RESPONSE) {
     _client.setRxTimeout(0);
     _response->_respond(*this);
     // Free up resources no longer needed
+    // NOTE: these resources should not be freed if CGI-like features are to be implemented
     _url.clear(true);
     _host.clear(true);
   }
@@ -375,8 +407,10 @@ void AsyncWebRequest::_parseQueries(char *buf){
       else break;
     if (*value) *value++ = '\0';
 
-    ESPWS_DEBUGVV("[%s] Query [%s] = '%s'\n", _remoteIdent.c_str(), name, value);
-    _queries.append(AsyncWebQuery(urlDecode(name,value-name), urlDecode(value,buf-value)));
+    String _name = urlDecode(name,value-name);
+    String _value = urlDecode(value,buf-value);
+    ESPWS_DEBUGVV("[%s] Query [%s] = '%s'\n", _remoteIdent.c_str(), _name.c_str(), _value.c_str());
+    _addUniqueNameVal(_queries, _name, _value);
   }
 }
 
@@ -396,9 +430,23 @@ bool AsyncWebRequest::hasQuery(const String& name) const {
 
 AsyncWebQuery const* AsyncWebRequest::getQuery(const String& name) const {
   return _queries.get_if([&](AsyncWebQuery const &v) {
-    return name.equalsIgnoreCase(v.name);
+    return name.equals(v.name);
   });
 }
+
+#ifdef HANDLE_REQUEST_CONTENT
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+bool AsyncWebRequest::hasParam(const String& name) const {
+  return getParam(name) != NULL;
+}
+
+AsyncWebParam const* AsyncWebRequest::getParam(const String& name) const {
+  return _params.get_if([&](AsyncWebParam const &v) {
+    return name.equals(v.name);
+  });
+}
+#endif
+#endif
 
 void AsyncWebRequest::send(AsyncWebResponse *response) {
   ESPWS_DEBUGDO(while (_response != NULL) panic());

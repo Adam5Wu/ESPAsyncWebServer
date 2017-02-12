@@ -79,6 +79,14 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
       // Do not expect request body
       return false;
     }
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    virtual bool _handleParamData(AsyncWebRequest &request, String const& name, String const& contentType,
+                                  size_t contentLength, size_t offset, void *buf, size_t size) override {
+      // Do not expect request param
+      return false;
+    }
+#endif
 #endif
 };
 
@@ -88,6 +96,9 @@ class AsyncCallbackWebHandler: public AsyncPathURIWebHandler {
     ArRequestHandlerFunction onRequest;
 #ifdef HANDLE_REQUEST_CONTENT
     ArBodyHandlerFunction onBody;
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    ArParamDataHandlerFunction onParamData;
+#endif
 #endif
 
     AsyncCallbackWebHandler(const String& path, WebRequestMethodComposite method = HTTP_ANY)
@@ -102,9 +113,14 @@ class AsyncCallbackWebHandler: public AsyncPathURIWebHandler {
     }
 
 #ifdef HANDLE_REQUEST_CONTENT
-    virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size) override {
-      return onBody? onBody(request, offset, buf, size) : false;
-    }
+    virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size) override
+    { return onBody? onBody(request, offset, buf, size) : false; }
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    virtual bool _handleParamData(AsyncWebRequest &request, String const& name, String const& contentType,
+                                  size_t contentLength, size_t offset, void *buf, size_t size) override
+    { return onParamData? onParamData(request, name, contentType, contentLength, offset, buf, size) : false; }
+#endif
 #endif
 };
 

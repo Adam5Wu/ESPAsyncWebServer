@@ -59,6 +59,12 @@ class AsyncWebParser {
       if (Header) Header->values.append(std::move(value));
       else _request._headers.append(AsyncWebHeader(std::move(key), std::move(value)));
     }
+#ifdef HANDLE_REQUEST_CONTENT
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    AsyncWebParam& __addParam(String &key, String &value)
+    { return _request._addUniqueNameVal(_request._params, key, value); }
+#endif
+#endif
 
     ESPWS_DEBUGDO(const char* __strState(void) { return _request._stateToString(); })
 
@@ -107,21 +113,6 @@ class AsyncRequestPassthroughContentParser: public AsyncWebParser {
 
 typedef std::function<AsyncWebParser*(AsyncWebRequest &request)> ArBodyParserMaker;
 extern LinkedList<ArBodyParserMaker> BodyParserRegistry;
-
- /*
-   if (strncmp(value.begin(), "multipart/", 10) == 0) {
-   int typeEnd = value.indexOf(';', 10);
-   if (typeEnd <= 0) return false;
-   int indexBoundary = value.indexOf('=', typeEnd + 8);
-   if (indexBoundary <= 0) return false;
-   _boundary = &value[indexBoundary+1];
-   value.remove(typeEnd);
-
-   _request._contentType = std::move(value);
-   ESPWS_DEBUGV("[%s] + Content-Type: '%s', boundary='%s'\n", _request._remoteIdent.c_str(),
-   _request._contentType.c_str(), _boundary.c_str());
- } else {
-  */
 
 #endif
 
