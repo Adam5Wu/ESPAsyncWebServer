@@ -219,8 +219,76 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 }
 
 void AsyncStaticWebHandler::_sendDirList(AsyncWebRequest &request) {
-  ESPWS_DEBUGVV("[%s] Forbid dir listing\n", request._remoteIdent.c_str());
-  request.send(403); // Dir listing is forbidden
+  String subpath = request.url().substring(path.length());
+  Dir CWD = subpath.empty()? _dir : _dir.openDir(subpath.c_str());
+  if (!CWD) {
+    request.send(500);
+    return;
+  }
+
+  uint32_t startTS = millis();
+  ESPWS_DEBUGV("[%s] Sending dir listing of '%s'\n", request._remoteIdent.c_str(), CWD.name());
+  String OvfBuf;
+  OvfBuf.concat("<html><head><title>Directory content of '");
+  OvfBuf.concat(request.url());
+  OvfBuf.concat("'</title><style>table{width:100%;border-collapse:collapse}"
+                "th{background:#DDD;text-align:right}th:first-child{text-align:left}"
+                "td{text-align:right}td:first-child{text-align:left}"
+                "div.footnote{font-size:small;text-align:right}</style><head>"
+                "<body><h1>Directory '");
+  OvfBuf.concat(request.url());
+  OvfBuf.concat("'</h1><hr><table><thead><tr><th>Name</th><th>Size (bytes)</th><th>Modification Time</th>"
+                "</tr></thead><tbody>");
+  if (!subpath.empty())
+    OvfBuf.concat("<tr><td><a href='..'>(Parent directory)</a></td><td></td><td></td></tr>");
+  CWD.next(true);
+
+  request.sendChunked(200,
+    [=,&request](uint8_t* buf, size_t len, size_t offset) mutable -> size_t {
+      size_t outLen = 0;
+      if (!OvfBuf.empty()) {
+        outLen = OvfBuf.length() < len? OvfBuf.length(): len;
+        memcpy(buf,OvfBuf.begin(),outLen);
+        if (outLen >= OvfBuf.length()) OvfBuf.clear();
+        else OvfBuf.remove(0, outLen);
+      }
+      while (CWD && outLen < len) {
+        if (CWD.entryName()) {
+          {
+            String EntryRef = CWD.entryName();
+            if (CWD.isEntryDir()) EntryRef.concat('/');
+            OvfBuf.concat("<tr><td><a href='");
+            OvfBuf.concat(EntryRef);
+            OvfBuf.concat("'>",2);
+            OvfBuf.concat(EntryRef);
+          }
+          OvfBuf.concat("</a></td><td>",13);
+          OvfBuf.concat(CWD.entrySize());
+          OvfBuf.concat("</td><td>",9);
+          time_t mtime = CWD.entryMtime();
+          char strbuf[30];
+          OvfBuf.concat(ctime_r(&mtime, strbuf));
+          OvfBuf.concat("</td></tr>",10);
+          CWD.next();
+        } else {
+          uint32_t endTS = millis();
+          OvfBuf.concat("</tbody></table><hr><div class='footnote'>Served by ");
+          OvfBuf.concat(request._server.VERTOKEN);
+          OvfBuf.concat(" (",2);
+          OvfBuf.concat(GetPlatformAnnotation());
+          OvfBuf.concat(") [",3);
+          OvfBuf.concat(endTS-startTS);
+          OvfBuf.concat("ms]</span></body></html>");
+          CWD = Dir();
+        }
+        size_t moveLen = OvfBuf.length() < len-outLen? OvfBuf.length(): len-outLen;
+        memcpy(buf+outLen,OvfBuf.begin(),moveLen);
+        if (moveLen >= OvfBuf.length()) OvfBuf.clear();
+        else OvfBuf.remove(0, moveLen);
+        outLen+= moveLen;
+      }
+      return outLen;
+    }, "text/html");
 }
 
 void AsyncStaticWebHandler::_pathNotFound(AsyncWebRequest &request) {

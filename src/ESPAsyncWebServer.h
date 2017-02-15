@@ -30,7 +30,7 @@
 #include "StringArray.h"
 
 #define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
-#define ESPWS_DEBUG_LEVEL 3
+#define ESPWS_DEBUG_LEVEL 1
 
 #if ESPWS_DEBUG_LEVEL < 1
 #define ESPWS_DEBUGDO(...)

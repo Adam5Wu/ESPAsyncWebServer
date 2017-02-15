@@ -25,6 +25,8 @@
 
 #include <ESPAsyncWebServer.h>
 
+String const& GetPlatformAnnotation(void);
+
 class AsyncSimpleResponse: public AsyncWebResponse {
   private:
     String _status;

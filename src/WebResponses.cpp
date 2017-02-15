@@ -232,7 +232,7 @@ size_t AsyncSimpleResponse::_process(size_t resShare) {
 
 bool AsyncSimpleResponse::_prepareSendBuf(size_t resShare) {
   while (!_sendbuf) {
-    size_t space = std::min(_request->_client.space(), resShare);
+    size_t space = _request->_client.space() < resShare? _request->_client.space(): resShare;
     if (space < resShare/2 && space < TCP_MSS/4) {
       // Send buffer too small, wait for it to grow bigger
       ESPWS_DEBUGVV("[%s] Wait for larger send buffer\n", _request->_remoteIdent.c_str());
