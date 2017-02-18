@@ -81,12 +81,21 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
     }
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-    virtual bool _handleParamData(AsyncWebRequest &request, String const& name, String const& contentType,
-                                  size_t contentLength, size_t offset, void *buf, size_t size) override {
+    virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
+                                  size_t offset, void *buf, size_t size) override {
       // Do not expect request param
       return false;
     }
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+    virtual bool _handleUploadData(AsyncWebRequest &request, String const& name, String const& filename,
+                                   String const& contentType, size_t offset, void *buf, size_t size) override {
+      // Do not expect request upload
+      return false;
+    }
+#endif
+
 #endif
 };
 
@@ -96,9 +105,15 @@ class AsyncCallbackWebHandler: public AsyncPathURIWebHandler {
     ArRequestHandlerFunction onRequest;
 #ifdef HANDLE_REQUEST_CONTENT
     ArBodyHandlerFunction onBody;
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
     ArParamDataHandlerFunction onParamData;
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+    ArUploadDataHandlerFunction onUploadData;
+#endif
+
 #endif
 
     AsyncCallbackWebHandler(const String& path, WebRequestMethodComposite method = HTTP_ANY)
@@ -117,10 +132,17 @@ class AsyncCallbackWebHandler: public AsyncPathURIWebHandler {
     { return onBody? onBody(request, offset, buf, size) : false; }
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-    virtual bool _handleParamData(AsyncWebRequest &request, String const& name, String const& contentType,
-                                  size_t contentLength, size_t offset, void *buf, size_t size) override
-    { return onParamData? onParamData(request, name, contentType, contentLength, offset, buf, size) : false; }
+    virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
+                                  size_t offset, void *buf, size_t size) override
+    { return onParamData? onParamData(request, name, offset, buf, size) : false; }
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+    virtual bool _handleUploadData(AsyncWebRequest &request, String const& name, String const& filename,
+                                   String const& contentType, size_t offset, void *buf, size_t size) override
+    { return onUploadData? onUploadData(request, name, filename, contentType, offset, buf, size) : false; }
+#endif
+
 #endif
 };
 

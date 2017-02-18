@@ -25,6 +25,14 @@ extern "C" {
   #include "lwip/opt.h"
 }
 
+ESPWS_DEBUGDO(const char* AsyncRequestHeadParser::_stateToString(void) const {
+  switch (_state) {
+    case H_PARSER_ACCU: return "Accumulating";
+    case H_PARSER_LINE: return "HandleLine";
+    default: return "???";
+  }
+})
+
 bool AsyncRequestHeadParser::_parseLine(void) {
   switch (__reqState()) {
     case REQUEST_START:
@@ -227,17 +235,19 @@ void AsyncRequestHeadParser::_parse(void *&buf, size_t &len) {
     while (str[i] != '\n') {
       if (++i >= len) {
         // No new line, just add the buffer in _temp
+        _state = H_PARSER_ACCU;
         _temp.concat(str, len);
         len = 0;
         return;
       }
     }
     // Found new line - extract it and parse
-    _temp.concat(str, i++);
+    _temp.concat(str, i-1);
     _temp.trim();
 
-    len-= i;
-    buf = str+= i;
+    len-= i+1;
+    buf = str+= i+1;
+    _state = H_PARSER_LINE;
     if (!_parseLine()) break;
     _temp.clear();
   }
@@ -248,7 +258,7 @@ void AsyncRequestHeadParser::_parse(void *&buf, size_t &len) {
 void AsyncRequestPassthroughContentParser::_parse(void *&buf, size_t &len) {
   // Simply track the upload progress and invoke handler
   if (!__reqHandler()->_handleBody(_request, _curOfs, buf, len)) {
-    ESPWS_DEBUG("[%s] WARNING: Request body handling terminated abnormally!\n", _request._remoteIdent.c_str());
+    ESPWS_DEBUG("[%s] Request body handling terminated abnormally\n", _request._remoteIdent.c_str());
     __reqState(REQUEST_ERROR);
   } else {
     _curOfs+= len;
@@ -264,11 +274,11 @@ void AsyncRequestPassthroughContentParser::_parse(void *&buf, size_t &len) {
 }
 
 typedef enum {
-  PARSER_KEY,
-  PARSER_VALUE
+  SF_PARSER_KEY,
+  SF_PARSER_VALUE
 } SimpleFormParserState;
 
-class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
+class AsyncSimpleFormContentParser: public AsyncWebParser {
   protected:
     SimpleFormParserState _state;
     size_t _curOfs;
@@ -282,6 +292,7 @@ class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
 
     bool _checkReachEnd(std::function<void(void)> callback) {
       if (_curOfs >= _request.contentLength()) {
+        ESPWS_DEBUG("[%s] Finished body parsing\n", _request._remoteIdent.c_str());
         if (callback) callback();
         if (__reqState() == REQUEST_BODY) {
           __reqState(REQUEST_RECEIVED);
@@ -294,22 +305,21 @@ class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
       return false;
     }
 
-    ESPWS_DEBUGDO(const char* _stateToString(void) const {
+    ESPWS_DEBUGDO(const char* _stateToString(void) const override {
       switch (_state) {
-        case PARSER_KEY: return "Key";
-        case PARSER_VALUE: return "Value";
+        case SF_PARSER_KEY: return "Key";
+        case SF_PARSER_VALUE: return "Value";
         default: return "???";
       }
     })
 
     bool _pushKeyVal(String &&value, bool _flush) {
-      if (_state == PARSER_VALUE) {
+      if (_state == SF_PARSER_VALUE) {
         bool HandlerCallback = _flush || _memCacheFull();
         if (HandlerCallback) {
           ESPWS_DEBUGVV("[%s] * [%s]@%0.4X = '%s'\n", _request._remoteIdent.c_str(),
                         _key.c_str(), _valOfs, value.c_str());
-          __reqHandler()->_handleParamData(_request, _key, EMPTY_STRING, _flush?0:value.length(),
-                                           _valOfs, value.begin(), value.length());
+          __reqHandler()->_handleParamData(_request, _key, _valOfs, value.begin(), value.length());
           _valOfs+= value.length();
         } else {
           ESPWS_DEBUGVV("[%s] + [%s] = '%s'\n", _request._remoteIdent.c_str(),
@@ -321,8 +331,8 @@ class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
         return true;
       }
 
-      ESPWS_DEBUG("[%s] WARNING: Invalid request parameter state '%s'\n",
-                  _request._remoteIdent.c_str(), _stateToString());
+      ESPWS_DEBUG("[%s] Invalid request parameter state '%s'\n", _request._remoteIdent.c_str(),
+                  _stateToString());
       __reqState(REQUEST_ERROR);
       return false;
     }
@@ -344,8 +354,10 @@ class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
     }
 
   public:
-    AsyncRequestSimpleFormContentParser(AsyncWebRequest &request)
-    : AsyncWebParser(request), _state(PARSER_KEY), _curOfs(0), _valOfs(0), _memCached(0) {}
+    AsyncSimpleFormContentParser(AsyncWebRequest &request)
+    : AsyncWebParser(request), _state(SF_PARSER_KEY), _curOfs(0), _valOfs(0), _memCached(0) {
+
+    }
 
     virtual void _parse(void *&buf, size_t &len) override {
       char *str = (char*)buf;
@@ -353,11 +365,11 @@ class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
         char delim = '\0';
         size_t limit = 0;
         switch (_state) {
-          case PARSER_KEY:
+          case SF_PARSER_KEY:
             delim = '=';
             limit = REQUEST_PARAM_KEYMAX;
             break;
-          case PARSER_VALUE:
+          case SF_PARSER_VALUE:
             delim = '&';
             limit = -1;
             break;
@@ -371,7 +383,7 @@ class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
 
             // Guard maximum token length
             if (_temp.length()+i > limit) {
-              ESPWS_DEBUG("[%s] WARNING: Request parameter token exceeds length limit!\n", _request._remoteIdent.c_str());
+              ESPWS_DEBUG("[%s] Request parameter token exceeds length limit!\n", _request._remoteIdent.c_str());
               __reqState(REQUEST_ERROR);
               return;
             }
@@ -381,7 +393,7 @@ class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
             _curOfs+= i;
 
             // Have we reached the end?
-            if (_checkReachEnd([&](){
+            if (_checkReachEnd([&]{
               _pushKeyVal(urlDecode(_temp.begin(),_temp.length()), _valOfs);
             })) return;
 
@@ -401,13 +413,13 @@ class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
         if (!_temp.empty()) {
           String item = urlDecode(_temp.begin(),_temp.length());
           switch (_state) {
-            case PARSER_KEY:
+            case SF_PARSER_KEY:
               _key = std::move(item);
-              _state = PARSER_VALUE;
+              _state = SF_PARSER_VALUE;
               break;
-            case PARSER_VALUE:
+            case SF_PARSER_VALUE:
               _pushKeyVal(std::move(item), _valOfs);
-              _state = PARSER_KEY;
+              _state = SF_PARSER_KEY;
               _valOfs = 0;
               break;
           }
@@ -418,17 +430,357 @@ class AsyncRequestSimpleFormContentParser: public AsyncWebParser {
     }
 };
 
+typedef enum {
+  MP_PARSER_STARTUP,
+  MP_PARSER_BOUNDARY,
+  MP_PARSER_HEADER,
+  MP_PARSER_VALUE,
+  MP_PARSER_CONTENT,
+  MP_PARSER_TERMINATE
+} MultipartFormParserState;
+
+class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
+  protected:
+    MultipartFormParserState _state;
+    size_t _boundaryLen;
+    size_t _curOfs;
+    size_t _valOfs;
+    size_t _parseOfs;
+    size_t _memCached;
+    String _temp;
+    String _boundary;
+    String _key;
+    String _filename;
+    String _contentType;
+
+    bool _needFlush(void) { return _temp.length() > REQUEST_PARAM_MEMCACHE; }
+    bool _memCacheFull(void) { return _memCached > REQUEST_PARAM_MEMCACHE; }
+
+    bool _checkReachEnd(std::function<void(void)> callback) {
+      if (_curOfs >= _request.contentLength()) {
+        ESPWS_DEBUGVV("[%s] Finished body parsing\n", _request._remoteIdent.c_str());
+        if (callback) callback();
+        if (__reqState() == REQUEST_BODY) {
+          __reqState(REQUEST_RECEIVED);
+          __reqParser(NULL);
+          // We are done!
+          delete this;
+        }
+        return true;
+      }
+      ESPWS_DEBUGVV("[%s] Body parsed %d/%d\n", _request._remoteIdent.c_str(), _curOfs, _request.contentLength());
+      return false;
+    }
+
+    ESPWS_DEBUGDO(const char* _stateToString(void) const override {
+      switch (_state) {
+        case MP_PARSER_STARTUP: return "Startup";
+        case MP_PARSER_BOUNDARY: return "Boundary";
+        case MP_PARSER_HEADER: return "Header";
+        case MP_PARSER_VALUE: return "Value";
+        case MP_PARSER_CONTENT: return "Content";
+        case MP_PARSER_TERMINATE: return "Terminate";
+        default: return "???";
+      }
+    })
+
+    bool _pushKeyVal(String &&value, bool _flush) {
+      if (_state == MP_PARSER_VALUE) {
+        bool HandlerCallback = _flush || _memCacheFull();
+        if (HandlerCallback) {
+          ESPWS_DEBUGVV("[%s] * [%s]@%0.4X = '%s'\n", _request._remoteIdent.c_str(),
+          _key.c_str(), _valOfs, value.c_str());
+          __reqHandler()->_handleParamData(_request, _key, _valOfs, value.begin(), value.length());
+          _valOfs+= value.length();
+        } else {
+          ESPWS_DEBUGVV("[%s] + [%s] = '%s'\n", _request._remoteIdent.c_str(),
+          _key.c_str(), value.c_str());
+          _memCached+= _key.length();
+          _memCached+= value.length();
+          __addParam(_key, value);
+        }
+        return true;
+      }
+
+      ESPWS_DEBUG("[%s] Invalid request parameter state '%s'\n", _request._remoteIdent.c_str(),
+                  _stateToString());
+      return false;
+    }
+
+  public:
+    AsyncRequestMultipartFormContentParser(AsyncWebRequest &request)
+    : AsyncWebParser(request), _state(MP_PARSER_STARTUP), _curOfs(0), _valOfs(0), _parseOfs(0), _memCached(0) {
+      int indexBoundary = _request.contentType().indexOf("boundary=", 20);
+      if (indexBoundary < 0) {
+        ESPWS_DEBUG("[%s] Missing boundary specification\n", _request._remoteIdent.c_str());
+        __reqState(REQUEST_ERROR);
+        return;
+      }
+      _boundary = _extractValue(&_request.contentType().begin()[indexBoundary+9]);
+      ESPWS_DEBUGVV("[%s] Part boundary: '%s'\n", _request._remoteIdent.c_str(), _boundary.c_str());
+      _boundaryLen = _boundary.length();
+      __setContentType(String(_request.contentType().begin(),19));
+    }
+
+    String _extractValue(char const* str) {
+      String Ret;
+      if (*str == '"') {
+        while (*++str != '"') {
+          if (*str == '\0') {
+            ESPWS_DEBUG("[%s] WARNING: Unbalanced quotes in '%s'\n", _request._remoteIdent.c_str(), str);
+            break;
+          } else {
+            if (*str == '\\') Ret.concat(*++str);
+            else Ret.concat(*str);
+          }
+        }
+      } else {
+        int i = 0;
+        while (str[i] != ';') {
+          if (!str[i]) break;
+          else i++;
+        }
+        Ret = String(str, i);
+      }
+      return Ret;
+    }
+
+    bool _handleHeader(String &line) {
+      ESPWS_DEBUGVV("[%s] # %s\n", _request._remoteIdent.c_str(), line.c_str());
+
+      // Split the header into key and value
+      int keyEnd = line.indexOf(':');
+      if (keyEnd <= 0) return false;
+      int indexValue = keyEnd;
+      while (line[++indexValue] == ' ');
+      String value = line.substring(indexValue);
+      line.remove(keyEnd);
+
+      if (line.equalsIgnoreCase("Content-Disposition")) {
+        if (!value.startsWith("form-data;", 10, 0, true)) {
+          ESPWS_DEBUG("[%s] Unrecognised disposition type '%s'\n", _request._remoteIdent.c_str(),
+                      value.c_str());
+          return false;
+        }
+        int indexName = value.indexOf("name=",10);
+        if (indexName < 0) return false;
+        _key = _extractValue(&value[indexName+5]);
+        int indexFName = value.indexOf("filename=",10);
+        if (indexFName > 0) {
+          _filename = _extractValue(&value[indexFName+9]);
+          ESPWS_DEBUGV("[%s] * Part [%s], file '%s'\n", _request._remoteIdent.c_str(), _key.c_str(), _filename.c_str());
+        } else {
+          ESPWS_DEBUGV("[%s] * Part [%s]\n", _request._remoteIdent.c_str(), _key.c_str());
+        }
+      } else if (line.equalsIgnoreCase("Content-Type")) {
+        _contentType = std::move(value);
+        ESPWS_DEBUGV("[%s] * Content-Type: '%s'\n", _request._remoteIdent.c_str(), _contentType.c_str());
+      } else {
+        ESPWS_DEBUG("[%s] Unexpected part header '%s'\n", _request._remoteIdent.c_str(),
+                    line.c_str());
+        return false;
+      }
+      return true;
+    }
+
+    bool _handlePartBoundary(void *buf, size_t len) {
+      switch (_state) {
+        case MP_PARSER_STARTUP:
+          if (len)
+            ESPWS_DEBUG("[%s] WARNING: Ignoring startup data (%d bytes)\n", _request._remoteIdent.c_str(), len);
+          return true;
+
+        case MP_PARSER_VALUE:
+          return _pushKeyVal(String((char*)buf,len), false);
+
+        case MP_PARSER_CONTENT:
+          if (__reqHandler()->_handleUploadData(_request, _key, _filename, _contentType,
+                                                _valOfs, buf, len)) {
+            __addUpload(_key,_filename,_contentType,_valOfs+len);
+            return true;
+          } break;
+
+        default:
+          ESPWS_DEBUG("[%s] WARNING: Unrecognised parameter state '%s'\n", _request._remoteIdent.c_str(),
+                      _stateToString());
+      }
+      return false;
+    }
+
+    bool _handlePartMiddle(void *buf, size_t len) {
+      switch (_state) {
+        case MP_PARSER_STARTUP:
+          if (len)
+            ESPWS_DEBUG("[%s] WARNING: Ignoring startup data (%d bytes)\n", _request._remoteIdent.c_str(), len);
+          return true;
+
+        case MP_PARSER_VALUE:
+          return _pushKeyVal(String((char*)buf,len), true);
+
+        case MP_PARSER_CONTENT: {
+          size_t __valOfs = _valOfs;
+          _valOfs += len;
+          return __reqHandler()->_handleUploadData(_request, _key, _filename, _contentType,
+                                                   _valOfs, buf, len);
+        }
+
+        default:
+          ESPWS_DEBUG("[%s] WARNING: Unrecognised parameter state '%s'\n", _request._remoteIdent.c_str(),
+                      _stateToString());
+      }
+      return false;
+    }
+
+    virtual void _parse(void *&buf, size_t &len) override {
+      char *str = (char*)buf;
+      if (!_temp.empty()) {
+        _temp.concat(str, len);
+        str = _temp.begin();
+        len = _temp.length();
+      }
+      _curOfs += len;
+      while (len && buf) {
+        switch (_state) {
+          case MP_PARSER_STARTUP:
+          case MP_PARSER_VALUE:
+          case MP_PARSER_CONTENT: {
+            size_t i = _parseOfs;
+            bool partBoundary = false;
+            while (i < REQUEST_PARAM_MEMCACHE && i < len) {
+              if (_state == MP_PARSER_STARTUP) {
+                if (str[i++] == '-') {
+                  if (i+1+_boundaryLen <= len) {
+                    if (str[i] == '-' &&
+                        _boundary.startsWith(&str[i+1], _boundaryLen, 0, false)) {
+                      partBoundary = true;
+                      break;
+                    }
+                  } else break;
+                }
+              }
+              if (str[i++] == '\r') {
+                if (i+3+_boundaryLen <= len) {
+                  if (str[i] == '\n' && str[i+1] == '-' && str[i+2] == '-' &&
+                      _boundary.startsWith(&str[i+3], _boundaryLen, 0, false)) {
+                    partBoundary = true;
+                    break;
+                  }
+                } else break;
+              }
+            }
+            if (partBoundary) {
+              ESPWS_DEBUGVV("[%s] Boundary detected @%d\n", _request._remoteIdent.c_str(), i);
+              if (!_handlePartBoundary(str,i-1)) {
+                __reqState(REQUEST_ERROR);
+                return;
+              }
+              i+= (str[i] == '-')? 1 : 3;
+              i+= _boundaryLen;
+              str+= i;
+              len-= i;
+              _state = MP_PARSER_BOUNDARY;
+              _key.clear();
+              _filename.clear();
+              _contentType.clear();
+              _parseOfs = 0;
+            } else {
+              if (i >= REQUEST_PARAM_MEMCACHE) {
+                if (!_handlePartMiddle(str,i)) {
+                  __reqState(REQUEST_ERROR);
+                  return;
+                }
+                str+= i;
+                len-= i;
+              } else {
+                _parseOfs = i;
+                buf = NULL;
+              }
+            }
+          } break;
+
+          case MP_PARSER_BOUNDARY:
+          case MP_PARSER_HEADER: {
+            // Find new line in buf
+            size_t i = _parseOfs;
+            while (str[i] != '\n') {
+              if (++i >= len) {
+                // No new line, wait for next buffer
+                _parseOfs = i;
+                buf = NULL;
+                break;
+              }
+            }
+            if (buf) {
+              // Found new line - extract it and parse
+              if (i > 1) {
+                String line = String(str, i-1);
+                line.trim();
+                if (_state == MP_PARSER_HEADER) {
+                  if (!_handleHeader(line)) {
+                    __reqState(REQUEST_ERROR);
+                    return;
+                  }
+                } else {
+                  if (!line.equals("--")) {
+                    ESPWS_DEBUG("[%s] Unrecognised part boundary preamble '%s'\n", _request._remoteIdent.c_str(),
+                                line.c_str());
+                    __reqState(REQUEST_ERROR);
+                    return;
+                  } else {
+                    ESPWS_DEBUGVV("[%s] Multi-part Start\n", _request._remoteIdent.c_str());
+                    _state = MP_PARSER_TERMINATE;
+                  }
+                }
+              } else {
+                if (_state == MP_PARSER_HEADER) {
+                  if (_filename.empty()) {
+                    _state = MP_PARSER_VALUE;
+                    if (!_contentType.empty())
+                      ESPWS_DEBUG("[%s] WARNING: Content type without file\n", _request._remoteIdent.c_str());
+                  } else _state = MP_PARSER_CONTENT;
+                } else {
+                  ESPWS_DEBUGVV("[%s] Multi-part Terminate\n", _request._remoteIdent.c_str());
+                  _state = MP_PARSER_HEADER;
+                }
+              }
+              _parseOfs = 0;
+              str+= i+1;
+              len-= i+1;
+            }
+          } break;
+
+          case MP_PARSER_TERMINATE:
+            ESPWS_DEBUG("[%s] WARNING: Ignoring terminated data (%d bytes)\n", _request._remoteIdent.c_str(), len);
+            len = 0;
+            break;
+
+          default:
+            ESPWS_DEBUG("[%s] Invalid request parameter state '%s'\n", _request._remoteIdent.c_str(),
+                _stateToString());
+            __reqState(REQUEST_ERROR);
+        }
+      }
+      if (len) _temp = String(str, len);
+      _checkReachEnd([&]{
+        if (_state != MP_PARSER_TERMINATE) {
+          ESPWS_DEBUG("[%s] Excessive data at end of body\n", _request._remoteIdent.c_str());
+          __reqState(REQUEST_ERROR);
+        }
+      });
+    }
+};
+
 LinkedList<ArBodyParserMaker> BodyParserRegistry(NULL, {
 #ifdef HANDLE_REQUEST_CONTENT_SIMPLEFORM
   [](AsyncWebRequest &request) {
     return request.contentType("application/x-www-form-urlencoded")?
-    new AsyncRequestSimpleFormContentParser(request): NULL;
+    new AsyncSimpleFormContentParser(request): NULL;
   },
 #endif
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
   [](AsyncWebRequest &request) {
-    return request.contentType().startsWith("multipart/form-data;",20,0,true)?
-    new AsyncRequestMultipartFormContentParser(request): NULL;
+    return request.contentType().startsWith("multipart/form-data;", 20, 0, true)?
+           new AsyncRequestMultipartFormContentParser(request): NULL;
   },
 #endif
 });

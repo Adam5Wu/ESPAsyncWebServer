@@ -168,6 +168,9 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
   , _params(NULL)
 #endif
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+  , _uploads(NULL)
+#endif
 #endif
   ESPWS_DEBUGDO(, _remoteIdent(c.remoteIP().toString()+':'+c.remotePort()))
 {
@@ -280,6 +283,8 @@ bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
         // Recycle for another request
         _recycleClient();
         return true;
+      } else if (!_response->_finished()) {
+        break;
       }
 
     case REQUEST_ERROR:
@@ -338,8 +343,9 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 #endif
 
   if (len) {
-    ESPWS_DEBUG("[%s] On-Data: ignored extra data of %d bytes [%s] [%s]\n", _remoteIdent.c_str(),
-                len, _stateToString(), _response? _response->_stateToString() : "NULL");
+    ESPWS_DEBUG("[%s] On-Data: ignored extra data of %d bytes [%s] [Parser: %s] [Response: %s]\n", _remoteIdent.c_str(),
+                len, _stateToString(), _parser? _parser->_stateToString() : "N/A",
+                _response? _response->_stateToString() : "N/A");
   }
 
   if (_state == REQUEST_RECEIVED) {
@@ -435,6 +441,7 @@ AsyncWebQuery const* AsyncWebRequest::getQuery(const String& name) const {
 }
 
 #ifdef HANDLE_REQUEST_CONTENT
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 bool AsyncWebRequest::hasParam(const String& name) const {
   return getParam(name) != NULL;
@@ -446,6 +453,19 @@ AsyncWebParam const* AsyncWebRequest::getParam(const String& name) const {
   });
 }
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+bool AsyncWebRequest::hasUpload(const String& name) const {
+  return getUpload(name) != NULL;
+}
+
+AsyncWebUpload const* AsyncWebRequest::getUpload(const String& name) const {
+  return _uploads.get_if([&](AsyncWebUpload const &v) {
+    return name.equals(v.name);
+  });
+}
+#endif
+
 #endif
 
 void AsyncWebRequest::send(AsyncWebResponse *response) {

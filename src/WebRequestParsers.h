@@ -46,6 +46,8 @@ class AsyncWebParser {
     void __setKeepAlive(bool state) { _request._keepAlive = state; }
     void __setContentType(String &newContentType)
     { _request._contentType = std::move(newContentType); }
+    void __setContentType(String &&newContentType)
+    { _request._contentType = std::move(newContentType); }
     void __setContentLength(size_t newContentLength)
     { _request._contentLength = newContentLength; }
     void __setAuthType(WebServerRequestAuth newAuthType) { _request._authType = newAuthType; }
@@ -60,10 +62,22 @@ class AsyncWebParser {
       else _request._headers.append(AsyncWebHeader(std::move(key), std::move(value)));
     }
 #ifdef HANDLE_REQUEST_CONTENT
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
     AsyncWebParam& __addParam(String &key, String &value)
     { return _request._addUniqueNameVal(_request._params, key, value); }
 #endif
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+    AsyncWebUpload& __addUpload(String &key, String &filename, String &contentType, size_t contentLength) {
+      _request._uploads.append(AsyncWebUpload(std::move(key), std::move(filename)));
+      auto& Item = _request._uploads.back();
+      Item.contentType = std::move(contentType);
+      Item.contentLength = contentLength;
+      return Item;
+    }
+#endif
+
 #endif
 
     ESPWS_DEBUGDO(const char* __strState(void) { return _request._stateToString(); })
@@ -73,13 +87,20 @@ class AsyncWebParser {
     virtual ~AsyncWebParser() {}
 
     virtual void _parse(void *&buf, size_t &len) = 0;
+    ESPWS_DEBUGDO(virtual const char* _stateToString(void) const = 0);
 };
 
 /*
  * HEAD PARSER :: Handles parsing the head part of the request
  * */
+typedef enum {
+  H_PARSER_ACCU,
+  H_PARSER_LINE
+} HeaderParserState;
+
 class AsyncRequestHeadParser: public AsyncWebParser {
   private:
+    HeaderParserState _state;
     String _temp;
     bool _expectingContinue = false;
 
@@ -88,9 +109,11 @@ class AsyncRequestHeadParser: public AsyncWebParser {
     bool _parseReqHeader(void);
 
   public:
-    AsyncRequestHeadParser(AsyncWebRequest &request) : AsyncWebParser(request) {}
+    AsyncRequestHeadParser(AsyncWebRequest &request) : AsyncWebParser(request), _state(H_PARSER_ACCU) {}
 
     virtual void _parse(void *&buf, size_t &len) override;
+
+    ESPWS_DEBUGDO(const char* _stateToString(void) const override);
 };
 
 #ifdef HANDLE_REQUEST_CONTENT
@@ -107,6 +130,10 @@ class AsyncRequestPassthroughContentParser: public AsyncWebParser {
     : AsyncWebParser(request), _curOfs(0) {}
 
     virtual void _parse(void *&buf, size_t &len) override;
+
+    ESPWS_DEBUGDO(const char* _stateToString(void) const override {
+      return "Pass-through";
+    })
 };
 
 #include "LinkedList.h"

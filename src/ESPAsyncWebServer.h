@@ -30,7 +30,7 @@
 #include "StringArray.h"
 
 #define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
-#define ESPWS_DEBUG_LEVEL 1
+#define ESPWS_DEBUG_LEVEL 3
 
 #if ESPWS_DEBUG_LEVEL < 1
 #define ESPWS_DEBUGDO(...)
@@ -58,7 +58,7 @@
 
 #define HANDLE_REQUEST_CONTENT
 #define HANDLE_REQUEST_CONTENT_SIMPLEFORM
-//#define HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+#define HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 
 #define REQUEST_PARAM_MEMCACHE    1024
 #define REQUEST_PARAM_KEYMAX      128
@@ -116,15 +116,12 @@ class AsyncWebQuery {
 };
 
 #ifdef HANDLE_REQUEST_CONTENT
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 class AsyncWebParam {
   public:
     String name;
     String value;
-#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-    String contentType;
-    size_t contentLength;
-#endif
 
     AsyncWebParam(const String& n, const String& v)
     : name(n), value(v) {}
@@ -134,6 +131,22 @@ class AsyncWebParam {
 #endif
 };
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+class AsyncWebUpload : public AsyncWebParam {
+  public:
+    String contentType;
+    size_t contentLength;
+
+    AsyncWebUpload(const String& n, const String& v)
+    : AsyncWebParam(n, v) {}
+#ifdef __GXX_EXPERIMENTAL_CXX0X__
+    AsyncWebUpload(String&& n, String&& v)
+    : AsyncWebParam(std::move(n), std::move(v)) {}
+#endif
+};
+#endif
+
 #endif
 
 class AsyncWebServer;
@@ -199,9 +212,15 @@ class AsyncWebRequest {
     LinkedList<AsyncWebQuery> _queries;
 
 #ifdef HANDLE_REQUEST_CONTENT
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
     LinkedList<AsyncWebParam> _params;
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+    LinkedList<AsyncWebUpload> _uploads;
+#endif
+
 #endif
 
     void _onAck(size_t len, uint32_t time);
@@ -276,6 +295,7 @@ class AsyncWebRequest {
     { _queries.get_if(Pred); }
 
 #ifdef HANDLE_REQUEST_CONTENT
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
     size_t params() const { return _params.length(); }
     bool hasParam(const String& name) const;
@@ -284,6 +304,16 @@ class AsyncWebRequest {
     void enumParams(LinkedList<AsyncWebParam>::Predicate const& Pred)
     { _params.get_if(Pred); }
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+    size_t uploads() const { return _uploads.length(); }
+    bool hasUpload(const String& name) const;
+    AsyncWebUpload const* getUpload(const String& name) const;
+
+    void enumUploads(LinkedList<AsyncWebUpload>::Predicate const& Pred)
+    { _uploads.get_if(Pred); }
+#endif
+
 #endif
 
     void send(AsyncWebResponse *response);
@@ -413,11 +443,19 @@ class AsyncWebRewrite : public AsyncWebFilterable {
  * */
 typedef std::function<void(AsyncWebRequest&)> ArRequestHandlerFunction;
 #ifdef HANDLE_REQUEST_CONTENT
-typedef std::function<bool(AsyncWebRequest&, size_t, void*, size_t)> ArBodyHandlerFunction;
+  typedef std::function<bool(AsyncWebRequest&,
+                             size_t, void*, size_t)> ArBodyHandlerFunction;
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-typedef std::function<bool(AsyncWebRequest&, String const&, String const&,
-                           size_t, size_t, void*, size_t)> ArParamDataHandlerFunction;
+  typedef std::function<bool(AsyncWebRequest&, String const&,
+                             size_t, void*, size_t)> ArParamDataHandlerFunction;
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+  typedef std::function<bool(AsyncWebRequest&, String const&, String const&, String const&,
+                             size_t, void*, size_t)> ArUploadDataHandlerFunction;
+#endif
+
 #endif
 
 class AsyncWebHandler : public AsyncWebFilterable {
@@ -428,11 +466,19 @@ class AsyncWebHandler : public AsyncWebFilterable {
 
     virtual void _handleRequest(AsyncWebRequest &request) = 0;
 #ifdef HANDLE_REQUEST_CONTENT
-    virtual bool _handleBody(AsyncWebRequest &request, size_t offset, void *buf, size_t size) = 0;
+    virtual bool _handleBody(AsyncWebRequest &request,
+                             size_t offset, void *buf, size_t size) = 0;
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-    virtual bool _handleParamData(AsyncWebRequest &request, String const& name, String const& contentType,
-                                  size_t contentLength, size_t offset, void *buf, size_t size) = 0;
+    virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
+                                  size_t offset, void *buf, size_t size) = 0;
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+    virtual bool _handleUploadData(AsyncWebRequest &request, String const& name, String const& filename,
+                                   String const& contentType, size_t offset, void *buf, size_t size) = 0;
+#endif
+
 #endif
 };
 
@@ -470,9 +516,15 @@ class AsyncWebServer {
         ArRequestHandlerFunction onRequest;
 #ifdef HANDLE_REQUEST_CONTENT
         ArBodyHandlerFunction onBody;
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
         ArParamDataHandlerFunction onParamData;
 #endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+        ArUploadDataHandlerFunction onUploadData;
+#endif
+
 #endif
 
         virtual bool _isInterestingHeader(String const& key) override { return true; }
@@ -484,9 +536,15 @@ class AsyncWebServer {
         { return onBody? onBody(request, offset, buf, size) : true; }
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-        virtual bool _handleParamData(AsyncWebRequest &request, String const& name, String const& contentType,
-                                      size_t contentLength, size_t offset, void *buf, size_t size) override
-        { return onParamData? onParamData(request, name, contentType, contentLength, offset, buf, size) : true; }
+        virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
+                                      size_t offset, void *buf, size_t size) override
+        { return onParamData? onParamData(request, name, offset, buf, size) : true; }
+#endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+        virtual bool _handleUploadData(AsyncWebRequest &request, String const& name, String const& filename,
+                                       String const& contentType, size_t offset, void *buf, size_t size) override
+        { return onUploadData? onUploadData(request, name, filename, contentType, offset, buf, size) : true; }
 #endif
 
 #endif
@@ -537,6 +595,15 @@ class AsyncWebServer {
                                 ArParamDataHandlerFunction const& onParamData);
 #endif
 
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+    AsyncCallbackWebHandler& on(const char* uri,
+                                WebRequestMethodComposite method,
+                                ArRequestHandlerFunction const& onRequest,
+                                ArBodyHandlerFunction const& onBody,
+                                ArParamDataHandlerFunction const& onParamData,
+                                ArUploadDataHandlerFunction const& onUploadData);
+#endif
+
 #endif
 
     AsyncStaticWebHandler& serveStatic(const char* uri, Dir const& dir,
@@ -556,6 +623,11 @@ class AsyncWebServer {
     { _catchAllHandler.onParamData = onParamData; }
 #endif
 
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+    void catchAll(ArUploadDataHandlerFunction const& onUploadData)
+    { _catchAllHandler.onUploadData = onUploadData; }
+#endif
+
 #endif
 
     void reset() {
@@ -566,6 +638,10 @@ class AsyncWebServer {
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
       _catchAllHandler.onParamData = NULL;
+#endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+      _catchAllHandler.onUploadData = NULL;
 #endif
 
 #endif
