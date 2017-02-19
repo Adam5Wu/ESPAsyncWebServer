@@ -64,8 +64,12 @@ class AsyncWebParser {
 #ifdef HANDLE_REQUEST_CONTENT
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-    AsyncWebParam& __addParam(String &key, String &value)
-    { return _request._addUniqueNameVal(_request._params, key, value); }
+    AsyncWebParam& __addParam(String &key, String &value) {
+      if (key.endsWith("[]",2,0,false)) {
+        _request._params.append(AsyncWebParam(std::move(key), std::move(value)));
+        return _request._params.back();
+      } else return _request._addUniqueNameVal(_request._params, key, value);
+    }
 #endif
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)

@@ -416,7 +416,9 @@ void AsyncWebRequest::_parseQueries(char *buf){
     String _name = urlDecode(name,value-name);
     String _value = urlDecode(value,buf-value);
     ESPWS_DEBUGVV("[%s] Query [%s] = '%s'\n", _remoteIdent.c_str(), _name.c_str(), _value.c_str());
-    _addUniqueNameVal(_queries, _name, _value);
+    if (_name.endsWith("[]",2,0,false)) {
+      _params.append(AsyncWebParam(std::move(_name), std::move(_value)));
+    } else _addUniqueNameVal(_queries, _name, _value);
   }
 }
 
