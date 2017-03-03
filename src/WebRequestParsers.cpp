@@ -591,7 +591,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
           return true;
 
         case MP_PARSER_VALUE:
-          return _pushKeyVal(String((char*)buf,len), false);
+          return _pushKeyVal(len? String((char*)buf,len) : String(), false);
 
         case MP_PARSER_CONTENT:
           if (__reqHandler()->_handleUploadData(_request, _key, _filename, _contentType,
@@ -615,7 +615,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
           return true;
 
         case MP_PARSER_VALUE:
-          return _pushKeyVal(String((char*)buf,len), true);
+          return _pushKeyVal(len? String((char*)buf,len) : String(), true);
 
         case MP_PARSER_CONTENT: {
           size_t __valOfs = _valOfs;
