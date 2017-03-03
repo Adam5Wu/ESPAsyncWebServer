@@ -72,6 +72,31 @@ bool AsyncRequestHeadParser::_parseLine(void) {
           __reqState(REQUEST_RESPONSE);
         } else
 #endif
+#ifdef HANDLE_AUTHENTICATION
+        // Handle authentication
+        AuthSession* _session = _handleAuth();
+        if (!_session) {
+          ESPWS_DEBUGV("[%s] No session\n", _request._remoteIdent.c_str());
+          if (__reqState() == REQUEST_HEADERS)
+            __reqState(REQUEST_ERROR);
+          return false;
+        }
+        ESPWS_DEBUGV("[%s] Session %s\n", _request._remoteIdent.c_str(), _session->toString().c_str());
+        if (!_session->isAuthorized()) {
+          ESPWS_DEBUGV("[%s] Retry authentication\n", _request._remoteIdent.c_str());
+          _requestAuth();
+          if (__reqState() == REQUEST_HEADERS)
+          __reqState(REQUEST_ERROR);
+          return false;
+        }
+        if (!__setSession(_session)) {
+          ESPWS_DEBUGV("[%s] Decline access\n", _request._remoteIdent.c_str());
+          _rejectAuth(_session);
+          if (__reqState() == REQUEST_HEADERS)
+            __reqState(REQUEST_ERROR);
+          return false;
+        }
+#endif
         // Check if we can continue
         if (__reqHandler()->_checkContinue(_request, _expectingContinue)) {
 #ifdef HANDLE_REQUEST_CONTENT
@@ -119,22 +144,7 @@ bool AsyncRequestHeadParser::_parseReqStart(void) {
   if (indexVer <= 0) return false;
   _temp[indexVer] = '\0';
 
-  if (strcmp(_temp.begin(), "GET") == 0) {
-    __setMethod(HTTP_GET);
-  } else if (strcmp(_temp.begin(), "PUT") == 0) {
-    __setMethod(HTTP_PUT);
-  } else if (strcmp(_temp.begin(), "POST") == 0) {
-    __setMethod(HTTP_POST);
-  } else if (strcmp(_temp.begin(), "HEAD") == 0) {
-    __setMethod(HTTP_HEAD);
-  } else if (strcmp(_temp.begin(), "PATCH") == 0) {
-    __setMethod(HTTP_PATCH);
-  } else if (strcmp(_temp.begin(), "DELETE") == 0) {
-    __setMethod(HTTP_DELETE);
-  } else if (strcmp(_temp.begin(), "OPTIONS") == 0) {
-    __setMethod(HTTP_OPTIONS);
-  }
-
+  __setMethod(AsyncWebServer::parseMethod(_temp.begin()));
   __setVersion(memcmp(&_temp[indexVer+1], "HTTP/1.0", 8)? 1 : 0);
   __setUrl(&_temp[indexUrl+1]);
 
@@ -161,18 +171,18 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
     __setHost(value);
     ESPWS_DEBUGV("[%s] + Host: '%s'\n", _request._remoteIdent.c_str(), _request.host().c_str());
   } else if (_temp.equalsIgnoreCase("Connection")) {
+    ESPWS_DEBUGV("[%s] + Connection: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
     if (value.equalsIgnoreCase("keep-alive")) {
       __setKeepAlive(true);
-      ESPWS_DEBUGV("[%s] + Connection: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
     } else if (value.equalsIgnoreCase("close")) {
       __setKeepAlive(false);
-      ESPWS_DEBUGV("[%s] + Connection: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
     } else {
-      ESPWS_DEBUGV("[%s] ? Connection: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
 #ifdef STRICT_PROTOCOL
       _request.send(400);
       __reqState(REQUEST_RESPONSE);
       return false;
+#else
+      ESPWS_DEBUG("[%s] ? Unrecognised connection header content: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
 #endif
     }
   } else if (_temp.equalsIgnoreCase("Content-Type")) {
@@ -184,40 +194,24 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
     __setContentLength(contentLength);
     ESPWS_DEBUGV("[%s] + Content-Length: %d\n", _request._remoteIdent.c_str(), _request.contentLength());
   } else if (_temp.equalsIgnoreCase("Expect")) {
+    ESPWS_DEBUGV("[%s] + Expect: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
     if (value.equalsIgnoreCase("100-continue")) {
       _expectingContinue = true;
-      ESPWS_DEBUGV("[%s] + Expect: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
     } else {
-      ESPWS_DEBUGV("[%s] ? Expect: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
 #ifdef STRICT_PROTOCOL
       // According to RFC, unrecognised expect should be rejected with error
       _request.send(417);
       __reqState(REQUEST_RESPONSE);
       return false;
+#else
+      ESPWS_DEBUG("[%s] ? Unrecognised expect header content: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
 #endif
     }
+#ifdef HANDLE_AUTHENTICATION
   } else if (_temp.equalsIgnoreCase("Authorization")) {
-    int authEnd = value.indexOf(' ');
-    if (authEnd <= 0) return false;
-    int indexData = authEnd;
-    while (value[++indexData] == ' ');
-    String auth = value.substring(0, authEnd);
-
-    if (auth.equalsIgnoreCase("Basic")) {
-      __setAuthType(AUTH_BASIC);
-      __setAuthorization(&value[indexData]);
-      ESPWS_DEBUGV("[%s] + Authorization: Basic '%s'\n", _request._remoteIdent.c_str(), _request.authorization().c_str());
-      // Do Nothing
-    } else if (auth.equalsIgnoreCase("Digest")) {
-      __setAuthType(AUTH_DIGEST);
-      __setAuthorization(&value[indexData]);
-      ESPWS_DEBUGV("[%s] + Authorization: Digest '%s'\n", _request._remoteIdent.c_str(), _request.authorization().c_str());
-    } else {
-      __setAuthType(AUTH_OTHER);
-      __setAuthorization(value);
-      ESPWS_DEBUGV("[%s] ? Authorization: '%s'\n", _request._remoteIdent.c_str(), _request.authorization().c_str());
-      return false;
-    }
+    _authorization = std::move(value);
+    ESPWS_DEBUGV("[%s] + Authorization: '%s'\n", _request._remoteIdent.c_str(), _authorization.c_str());
+#endif
   } else {
     if (__reqHandler() && __reqHandler()->_isInterestingHeader(_temp)) {
       ESPWS_DEBUGV("[%s] ! %s: '%s'\n", _request._remoteIdent.c_str(), _temp.begin(), value.begin());
@@ -252,6 +246,45 @@ void AsyncRequestHeadParser::_parse(void *&buf, size_t &len) {
     _temp.clear();
   }
 }
+
+#ifdef HANDLE_AUTHENTICATION
+
+AuthSession* AsyncRequestHeadParser::_handleAuth(void) {
+  AsyncWebAuth AuthInfo = _request._server._parseAuthHeader(_authorization, _request);
+  switch (AuthInfo.State) {
+    case AUTHHEADER_ANONYMOUS:
+    case AUTHHEADER_PREAUTH:
+      return _request._server._authSession(AuthInfo, _request);
+
+    case AUTHHEADER_UNACCEPT:
+    case AUTHHEADER_MALFORMED:
+    case AUTHHEADER_EXPIRED:
+    case AUTHHEADER_NORECORD:
+      _requestAuth(AuthInfo.State == AUTHHEADER_EXPIRED);
+      break;
+
+    default:
+      ESPWS_DEBUG("[%s] WARNING: Unrecognised authorization header parsing state '%s'\n",
+                  _request._remoteIdent.c_str(), AuthInfo._stateToString());
+  }
+  return NULL;
+}
+
+void AsyncRequestHeadParser::_requestAuth(bool renew) {
+  AsyncWebResponse *response = _request.beginResponse(401);
+  _request._server._genAuthHeader(*response, _request, renew);
+  _request.send(response);
+  __reqState(REQUEST_RESPONSE);
+}
+
+void AsyncRequestHeadParser::_rejectAuth(AuthSession *session) {
+  if (session->IDENT != IdentityProvider::ANONYMOUS) {
+    _request.send(403);
+    __reqState(REQUEST_RESPONSE);
+  } else _requestAuth();
+}
+
+#endif
 
 #ifdef HANDLE_REQUEST_CONTENT
 
@@ -442,6 +475,7 @@ typedef enum {
 class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
   protected:
     MultipartFormParserState _state;
+    bool _filepart;
     size_t _boundaryLen;
     size_t _curOfs;
     size_t _valOfs;
@@ -509,40 +543,18 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 
   public:
     AsyncRequestMultipartFormContentParser(AsyncWebRequest &request)
-    : AsyncWebParser(request), _state(MP_PARSER_STARTUP), _curOfs(0), _valOfs(0), _parseOfs(0), _memCached(0) {
+    : AsyncWebParser(request), _state(MP_PARSER_STARTUP), _filepart(false), _curOfs(0), _valOfs(0), _parseOfs(0), _memCached(0) {
       int indexBoundary = _request.contentType().indexOf("boundary=", 20);
       if (indexBoundary < 0) {
         ESPWS_DEBUG("[%s] Missing boundary specification\n", _request._remoteIdent.c_str());
         __reqState(REQUEST_ERROR);
         return;
       }
-      _boundary = _extractValue(&_request.contentType().begin()[indexBoundary+9]);
+      const char* valStart = &_request.contentType().begin()[indexBoundary+9];
+      _boundary = getQuotedToken(valStart);
       ESPWS_DEBUGVV("[%s] Part boundary: '%s'\n", _request._remoteIdent.c_str(), _boundary.c_str());
       _boundaryLen = _boundary.length();
       __setContentType(String(_request.contentType().begin(),19));
-    }
-
-    String _extractValue(char const* str) {
-      String Ret;
-      if (*str == '"') {
-        while (*++str != '"') {
-          if (*str == '\0') {
-            ESPWS_DEBUG("[%s] WARNING: Unbalanced quotes in '%s'\n", _request._remoteIdent.c_str(), str);
-            break;
-          } else {
-            if (*str == '\\') Ret.concat(*++str);
-            else Ret.concat(*str);
-          }
-        }
-      } else {
-        int i = 0;
-        while (str[i] != ';') {
-          if (!str[i]) break;
-          else i++;
-        }
-        Ret = String(str, i);
-      }
-      return Ret;
     }
 
     bool _handleHeader(String &line) {
@@ -558,16 +570,18 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 
       if (line.equalsIgnoreCase("Content-Disposition")) {
         if (!value.startsWith("form-data;", 10, 0, true)) {
-          ESPWS_DEBUG("[%s] Unrecognised disposition type '%s'\n", _request._remoteIdent.c_str(),
-                      value.c_str());
+          ESPWS_DEBUG("[%s] Unrecognised disposition type '%s'\n", _request._remoteIdent.c_str(), value.c_str());
           return false;
         }
         int indexName = value.indexOf("name=",10);
         if (indexName < 0) return false;
-        _key = _extractValue(&value[indexName+5]);
+        const char* valStart = &value[indexName+5];
+        _key = getQuotedToken(valStart);
         int indexFName = value.indexOf("filename=",10);
         if (indexFName > 0) {
-          _filename = _extractValue(&value[indexFName+9]);
+          _filepart = true;
+          valStart = &value[indexFName+9];
+          _filename = getQuotedToken(valStart);
           ESPWS_DEBUGV("[%s] * Part [%s], file '%s'\n", _request._remoteIdent.c_str(), _key.c_str(), _filename.c_str());
         } else {
           ESPWS_DEBUGV("[%s] * Part [%s]\n", _request._remoteIdent.c_str(), _key.c_str());
@@ -591,7 +605,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
           return true;
 
         case MP_PARSER_VALUE:
-          return _pushKeyVal(String((char*)buf,len), false);
+          return _pushKeyVal(len? String((char*)buf,len) : String(), false);
 
         case MP_PARSER_CONTENT:
           if (__reqHandler()->_handleUploadData(_request, _key, _filename, _contentType,
@@ -615,7 +629,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
           return true;
 
         case MP_PARSER_VALUE:
-          return _pushKeyVal(String((char*)buf,len), true);
+          return _pushKeyVal(len? String((char*)buf,len) : String(), true);
 
         case MP_PARSER_CONTENT: {
           size_t __valOfs = _valOfs;
@@ -680,6 +694,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
               len-= i;
               _state = MP_PARSER_BOUNDARY;
               _key.clear();
+              _filepart = false;
               _filename.clear();
               _contentType.clear();
               _parseOfs = 0;
@@ -727,19 +742,22 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
                     __reqState(REQUEST_ERROR);
                     return;
                   } else {
-                    ESPWS_DEBUGVV("[%s] Multi-part Start\n", _request._remoteIdent.c_str());
+                    ESPWS_DEBUGVV("[%s] Part Start\n", _request._remoteIdent.c_str());
                     _state = MP_PARSER_TERMINATE;
                   }
                 }
               } else {
                 if (_state == MP_PARSER_HEADER) {
-                  if (_filename.empty()) {
-                    _state = MP_PARSER_VALUE;
-                    if (!_contentType.empty())
-                      ESPWS_DEBUG("[%s] WARNING: Content type without file\n", _request._remoteIdent.c_str());
-                  } else _state = MP_PARSER_CONTENT;
+                  if (_filepart) {
+                    _state = MP_PARSER_CONTENT;
+                    if (_filename.empty()) ESPWS_DEBUG("[%s] WARNING: Empty file name\n", _request._remoteIdent.c_str());
+                    if (_contentType.empty()) {
+                      ESPWS_DEBUG("[%s] WARNING: No content type specified\n", _request._remoteIdent.c_str());
+                      _contentType = "text/plain";
+                    }
+                  } else _state = MP_PARSER_VALUE;
                 } else {
-                  ESPWS_DEBUGVV("[%s] Multi-part Terminate\n", _request._remoteIdent.c_str());
+                  ESPWS_DEBUGVV("[%s] Part End\n", _request._remoteIdent.c_str());
                   _state = MP_PARSER_HEADER;
                 }
               }

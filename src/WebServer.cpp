@@ -33,9 +33,7 @@
 #include "vfatfs_api.h"
 #endif
 
-String const EMPTY_STRING;
-uint8_t const HexLookup[] =
-{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
+WebRequestMethodComposite HTTP_ANY = 0b01111111;
 
 bool ON_STA_FILTER(AsyncWebRequest const &request) {
   return WiFi.localIP() == request._client.localIP();
@@ -47,16 +45,171 @@ bool ON_AP_FILTER(AsyncWebRequest const &request) {
 
 char const *AsyncWebServer::VERTOKEN = "ESPAsyncHTTPd/0.1";
 
+#ifdef HANDLE_AUTHENTICATION
+
+#include <StreamString.h>
+#include <time.h>
+#include <libb64/cdecode.h>
+extern "C" {
+  #include "user_interface.h"
+}
+
+class AnonymousAccountAuthority : public IdentityProvider, public BasicAuthorizer {
+  public:
+    virtual Identity& getIdentity(String const& identName) const override
+    { return identName.equalsIgnoreCase(ANONYMOUS.ID)? ANONYMOUS : UNKNOWN_IDENTITY; }
+    virtual bool Authenticate(Credential& cred) override
+    { return cred.IDENT == ANONYMOUS; }
+} ANONYMOUS_AUTH;
+
+static SessionAuthority ANONYMOUS_SESSIONS(&ANONYMOUS_AUTH, &ANONYMOUS_AUTH);
+static String const OPENACL("/:*:Anonymous");
+#endif
+
 AsyncWebServer::AsyncWebServer(uint16_t port)
   : _server(port)
   , _rewrites(LinkedList<AsyncWebRewrite*>([](AsyncWebRewrite* r){ delete r; }))
   , _handlers(LinkedList<AsyncWebHandler*>([](AsyncWebHandler* h){ delete h; }))
+#ifdef HANDLE_AUTHENTICATION
+  , _Auth(&ANONYMOUS_SESSIONS)
+  , _AuthAcc(AUTH_ANY)
+  , _Realm(DEFAULT_REALM)
+  , _Secret(system_get_chip_id(), 16)
+  , _NonceLife(DEFAULT_NONCE_LIFE)
+  , _DAuthRecs(NULL)
+  , _ACLs(NULL)
+#endif
   //, _catchAllHandler()
 {
   _server.onClient([](void* arg, AsyncClient* c){
     ((AsyncWebServer*)arg)->_handleClient(c);
   }, this);
+#ifdef HANDLE_AUTHENTICATION
+  StreamString ACLStream;
+  ACLStream.concat(OPENACL);
+  loadACL(ACLStream);
+#endif
 }
+
+#ifdef HANDLE_AUTHENTICATION
+void AsyncWebServer::configAuthority(SessionAuthority &Auth, Stream &ACLStream) {
+  _Auth = &Auth;
+  loadACL(ACLStream);
+}
+
+void AsyncWebServer::configRealm(String const &realm, String const &secret,
+                                 WebAuthTypeComposite authAccept, time_t nonceLife) {
+  _AuthAcc = authAccept;
+  _Realm = realm;
+  _Secret = secret;
+  _NonceLife = nonceLife;
+}
+#endif
+
+WebRequestMethod AsyncWebServer::parseMethod(char const *Str) {
+  if (strcmp(Str, "GET") == 0) {
+    return HTTP_GET;
+  } else if (strcmp(Str, "PUT") == 0) {
+    return HTTP_PUT;
+  } else if (strcmp(Str, "POST") == 0) {
+    return HTTP_POST;
+  } else if (strcmp(Str, "HEAD") == 0) {
+    return HTTP_HEAD;
+  } else if (strcmp(Str, "PATCH") == 0) {
+    return HTTP_PATCH;
+  } else if (strcmp(Str, "DELETE") == 0) {
+    return HTTP_DELETE;
+  } else if (strcmp(Str, "OPTIONS") == 0) {
+    return HTTP_OPTIONS;
+  }
+  return HTTP_UNKNOWN;
+}
+
+WebRequestMethodComposite AsyncWebServer::parseMethods(char *Str) {
+  WebRequestMethodComposite Ret = 0;
+  while (Str) {
+    char const* Ptr = Str;
+    while (*Str && *Str !=',') Str++;
+    if (*Str) *Str++ = '\0';
+    else Str = NULL;
+    if (Ptr[0] == '*' && !Ptr[1]) Ret |= HTTP_ANY;
+    else Ret |= parseMethod(Ptr);
+  }
+  return Ret;
+}
+
+const char* AsyncWebServer::mapMethod(WebRequestMethod method) {
+  switch (method) {
+    case HTTP_NONE: return "(?Unspecified?)";
+    case HTTP_GET: return "GET";
+    case HTTP_POST: return "POST";
+    case HTTP_DELETE: return "DELETE";
+    case HTTP_PUT: return "PUT";
+    case HTTP_PATCH: return "PATCH";
+    case HTTP_HEAD: return "HEAD";
+    case HTTP_OPTIONS: return "OPTIONS";
+    case HTTP_UNKNOWN: return "UNKNOWN";
+    default: return "(?Composite?)";
+  }
+}
+
+String AsyncWebServer::mapMethods(WebRequestMethodComposite methods) {
+  String Ret;
+  WebRequestMethod pivot = (WebRequestMethod)1;
+  while (methods) {
+    if (methods && pivot) {
+      if (!Ret.empty()) Ret.concat(',');
+      Ret.concat(mapMethod(pivot));
+      methods&= ~pivot;
+    }
+    pivot = (WebRequestMethod)(pivot << 1);
+  }
+  return Ret;
+}
+
+#ifdef HANDLE_AUTHENTICATION
+void AsyncWebServer::loadACL(Stream &source) {
+  _ACLs.clear();
+  while (source.available()) {
+    String Line = source.readStringUntil('\n');
+    Line.trim();
+    if (Line.empty()) continue;
+
+    char const* Ptr = Line.begin();
+    if (Ptr[0] == ':') {
+      ESPWS_DEBUG("ACL comment: %s\n", Ptr+1);
+      continue;
+    }
+    HTTPACL ACL(getQuotedToken(Ptr, ':'));
+    ACL.METHODS = parseMethods(getQuotedToken(Ptr, ':').begin());
+    ACL.IDENTS = _Auth->IDP->parseIdentities(String(Ptr).begin());
+    if (!ACL.METHODS) {
+      ESPWS_DEBUG("WARNING: Ineffective ACL on '%s' with no method specified\n", ACL.PATH.c_str());
+      continue;
+    }
+    if (!ACL.IDENTS.length()) {
+      if (!*Ptr) ESPWS_DEBUG("WARNING: Blocking ACL on '%s'", ACL.PATH.c_str());
+      ESPWS_DEBUG("WARNING: Blocking ACL on '%s' due to unrecognised identities '%s'\n", ACL.PATH.c_str(), Ptr);
+    }
+    size_t xcACLs = _ACLs.count_if([&](HTTPACL const &r) {
+      return r.PATH.equals(ACL.PATH) && (r.METHODS == ACL.METHODS);
+    });
+    if (xcACLs) ESPWS_DEBUG("WARNING: ACL on '%s' completely overrides %d earlier ones\n", ACL.PATH.c_str(), xcACLs);
+    size_t xpACLs = _ACLs.count_if([&](HTTPACL const &r) {
+      return r.PATH.equals(ACL.PATH) && (r.METHODS & ACL.METHODS);
+    }) - xcACLs;
+    if (xpACLs) ESPWS_DEBUG("WARNING: ACL on '%s' partially overrides %d earlier ones\n", ACL.PATH.c_str(), xpACLs);
+    if (ACL.PATH.end()[-1] == '/') {
+      size_t xsACLs = _ACLs.count_if([&](HTTPACL const &r) {
+        return r.PATH.startsWith(ACL.PATH);
+      });
+      if (xsACLs) ESPWS_DEBUG("WARNING: ACL on '%s' shadows %d earlier ones\n", ACL.PATH.c_str(), xsACLs);
+    }
+    _ACLs.prepend(std::move(ACL));
+  }
+  ESPWS_DEBUG("* ACL contains %d rules\n", _ACLs.length());
+}
+#endif
 
 void AsyncWebServer::_handleClient(AsyncClient* c) {
   if(c == NULL) return;
@@ -137,3 +290,339 @@ void AsyncWebServer::_attachHandler(AsyncWebRequest &request) const {
   if (handler) request._handler = *handler;
   else request._handler = (AsyncWebHandler*)&_catchAllHandler;
 }
+
+#ifdef HANDLE_AUTHENTICATION
+WebAuthTypeComposite AUTH_ANY = 0b00000111;
+WebAuthTypeComposite AUTH_REQUIRE = 0b00000110;
+WebAuthTypeComposite AUTH_SECURE = 0b00000100;
+
+ESPWS_DEBUGDO(const char* AsyncWebAuth::_stateToString(void) const {
+  switch (State) {
+    case AUTHHEADER_ANONYMOUS: return "Anonymous";
+    case AUTHHEADER_MALFORMED: return "Malformed";
+    case AUTHHEADER_NORECORD: return "No Record";
+    case AUTHHEADER_EXPIRED: return "Expired";
+    case AUTHHEADER_PREAUTH: return "Pre-authorization";
+    default: return "???";
+  }
+})
+
+ESPWS_DEBUGDO(const char* AsyncWebAuth::_typeToString(void) const {
+  switch (Type) {
+    case AUTH_NONE: return "None";
+    case AUTH_BASIC: return "Basic";
+    case AUTH_DIGEST: return "Digest";
+    case AUTH_OTHER: return "Other";
+    default: return "???";
+  }
+})
+
+String calcNonce(String const &IP, time_t TS, String const &Secret) {
+  String NonceSrc;
+  NonceSrc.concat(IP);
+  NonceSrc.concat(':');
+  NonceSrc.concat(TS,16);
+  NonceSrc.concat(':');
+  NonceSrc.concat(Secret);
+
+  String Ret(' ',32);
+  textMD5_LC((uint8_t*)NonceSrc.begin(),NonceSrc.length(),Ret.begin());
+  return Ret;
+}
+
+AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader, AsyncWebRequest const &request) const {
+  time_t CurTS = time(NULL);
+  // Cleanup stale records
+  LinkedList<NONCEREC>* DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
+  while (DAuthRecs->remove_if([&](NONCEREC const&r){
+    return r.EXPIRY+DEFAULT_NONCE_RENWEAL < CurTS;
+  }));
+
+  AsyncWebAuth Ret(AUTHHEADER_ANONYMOUS, AUTH_NONE);
+  while (!authHeader.empty()) {
+    Ret.State = AUTHHEADER_MALFORMED;
+    int indexAttr = authHeader.indexOf(' ');
+    if (indexAttr <= 0) {
+      ESPWS_DEBUG("[%s] WARNING: Missing authorization type separator in '%s'\n",
+                  request._remoteIdent.c_str(), authHeader.c_str());
+      break;
+    }
+    authHeader[indexAttr++] = '\0';
+
+    String Type = &authHeader[0];
+    if (Type.equalsIgnoreCase("Basic")) {
+      Ret.Type = AUTH_BASIC;
+      ESPWS_DEBUGVV("[%s] %s Authorization:\n", request._remoteIdent.c_str(), Ret._typeToString());
+      // Base64(username:password)
+      size_t srcLen = authHeader.length()-indexAttr;
+      String Decoded(' ', base64_decode_expected_len(srcLen));
+      size_t decLen = base64_decode_chars(&authHeader[indexAttr], srcLen, Decoded.begin());
+      if (decLen != srcLen) {
+        ESPWS_DEBUG("[%s] WARNING: Base64 decoding failed with %d trailing bytes\n",
+                    request._remoteIdent.c_str(), srcLen-decLen);
+        break;
+      }
+      int indexSecret = Decoded.indexOf(':');
+      if (indexSecret <= 0) {
+        ESPWS_DEBUG("[%s] WARNING: Missing password field separator in '%s'\n",
+                    request._remoteIdent.c_str(), Decoded.c_str());
+        break;
+      }
+      Ret.Secret = &Decoded[indexSecret+1];
+      Decoded.remove(indexSecret);
+      Ret.UserName = std::move(Decoded);
+      ESPWS_DEBUGVV("[%s] -> Username = '%s'\n", request._remoteIdent.c_str(), Ret.UserName.c_str());
+      ESPWS_DEBUGVV("[%s] -> Password = '%s'\n", request._remoteIdent.c_str(), Ret.Secret.c_str());
+    } else if (Type.equalsIgnoreCase("Digest")) {
+      Ret.Type = AUTH_DIGEST;
+      ESPWS_DEBUGVV("[%s] %s Authorization:\n", request._remoteIdent.c_str(), Ret._typeToString());
+      char const *valStart, *valEnd;
+      // username=...,
+      {
+        int indexUName = authHeader.indexOf("username=",indexAttr);
+        if (indexUName < 0) {
+          ESPWS_DEBUG("[%s] WARNING: Missing username field in '%s'\n",
+                      request._remoteIdent.c_str(), &authHeader[indexAttr]);
+          break;
+        }
+        valStart = valEnd = &authHeader[indexUName+9];
+        Ret.UserName = getQuotedToken(valEnd,',');
+        ESPWS_DEBUGVV("[%s] -> Username = '%s'\n", request._remoteIdent.c_str(), Ret.UserName.c_str());
+      }
+      // response=...,
+      {
+        int indexResp = authHeader.indexOf("response=",indexAttr);
+        if (indexResp < 0) {
+          ESPWS_DEBUG("[%s] WARNING: Missing response field in '%s'\n",
+                      request._remoteIdent.c_str(), &authHeader[indexAttr]);
+          break;
+        }
+        valStart = valEnd = &authHeader[indexResp+9];
+        String Response = getQuotedToken(valEnd,',');
+        ESPWS_DEBUGVV("[%s] -> Response = '%s'\n", request._remoteIdent.c_str(), Response.c_str());
+        Ret.Secret.concat(valStart,valEnd-valStart-1);
+      }
+      // realm=...,
+      {
+        int indexRealm = authHeader.indexOf("realm=",indexAttr);
+        if (indexRealm < 0) {
+          ESPWS_DEBUG("[%s] WARNING: Missing realm field in '%s'\n",
+                      request._remoteIdent.c_str(), &authHeader[indexAttr]);
+          break;
+        }
+        valStart = valEnd = &authHeader[indexRealm+6];
+        String Realm = getQuotedToken(valEnd,',');
+        ESPWS_DEBUGVV("[%s] -> Realm = '%s'\n", request._remoteIdent.c_str(), Realm.c_str());
+        if (!Realm.equals(_Realm)) {
+          ESPWS_DEBUG("[%s] WARNING: Authorization realm '%s' mismatch, expect '%s'\n",
+                      request._remoteIdent.c_str(), Realm.c_str(), _Realm.c_str());
+          Ret.State = AUTHHEADER_NORECORD;
+          break;
+        }
+        Ret.Secret.concat(';');
+        Ret.Secret.concat(valStart,valEnd-valStart-1);
+      }
+      // nonce=...,
+      NONCEREC* NRec;
+      {
+        int indexNonce = authHeader.indexOf("nonce=",indexAttr);
+        if (indexNonce < 0) {
+          ESPWS_DEBUG("[%s] WARNING: Missing nonce field in '%s'\n",
+                      request._remoteIdent.c_str(), &authHeader[indexAttr]);
+          break;
+        }
+        valStart = valEnd = &authHeader[indexNonce+6];
+        String Nonce = getQuotedToken(valEnd,',');
+        ESPWS_DEBUGVV("[%s] -> Nonce = '%s'\n", request._remoteIdent.c_str(), Nonce.c_str());
+        // Lookup alive records
+        NRec = DAuthRecs->get_if([&](NONCEREC const&r){ return r.NONCE.equals(Nonce); });
+        if (!NRec) {
+          ESPWS_DEBUG("[%s] WARNING: No record found with given nonce '%s'\n",
+                      request._remoteIdent.c_str(), Nonce.c_str());
+          Ret.State = AUTHHEADER_NORECORD;
+          break;
+        }
+        // Check record expiration
+        if (NRec->EXPIRY < CurTS) {
+          ESPWS_DEBUG("[%s] WARNING: Expired record with given nonce '%s'\n",
+                      request._remoteIdent.c_str(), Nonce.c_str());
+          Ret.State = AUTHHEADER_EXPIRED;
+          break;
+        }
+        // Validate nonce
+        String ValidNonce = calcNonce(request._client.remoteIP().toString(), NRec->EXPIRY, _Secret);
+        if (!Nonce.equals(ValidNonce)) {
+          ESPWS_DEBUG("[%s] WARNING: Unmatched nonce '%s', expect '%s'\n",
+                      request._remoteIdent.c_str(), Nonce.c_str(), ValidNonce.c_str());
+          Ret.State = AUTHHEADER_UNACCEPT;
+          break;
+        }
+        Ret.Secret.concat(';');
+        Ret.Secret.concat(valStart,valEnd-valStart-1);
+      }
+      // qop=...,
+      int QoPLevel = 0;
+      {
+        int indexQoP = authHeader.indexOf("qop=",indexAttr);
+        if (indexQoP >= 0) {
+          valStart = valEnd = &authHeader[indexQoP+4];
+          String QoP = getQuotedToken(valEnd,',');
+          ESPWS_DEBUGVV("[%s] -> QoP = '%s'\n", request._remoteIdent.c_str(), QoP.c_str());
+          if (QoP.equals("auth")) QoPLevel = 1;
+          else if (QoP.equals("auth-int")) QoPLevel = 2;
+          else {
+            ESPWS_DEBUG("[%s] WARNING: Unrecognised QoP specifier '%s'\n",
+                        request._remoteIdent.c_str(), QoP.c_str());
+            break;
+          }
+          Ret.Secret.concat(';');
+          Ret.Secret.concat(valStart,valEnd-valStart-1);
+        } else {
+          ESPWS_DEBUGVV("[%s] -> QoP X\n", request._remoteIdent.c_str());
+          Ret.Secret.concat(';');
+        }
+      }
+      // cnonce=...,
+      {
+        int indexCNonce = authHeader.indexOf("cnonce=",indexAttr);
+        if (indexCNonce >= 0) {
+          valStart = valEnd = &authHeader[indexCNonce+7];
+          String CNonce = getQuotedToken(valEnd,',');
+          ESPWS_DEBUGVV("[%s] -> CNonce = '%s'\n", request._remoteIdent.c_str(), CNonce.c_str());
+          Ret.Secret.concat(';');
+          Ret.Secret.concat(valStart,valEnd-valStart-1);
+        } else {
+          if (QoPLevel > 0) {
+            ESPWS_DEBUG("[%s] WARNING: Missing cnonce field in '%s'\n",
+                        request._remoteIdent.c_str(), &authHeader[indexAttr]);
+            break;
+          } else {
+            ESPWS_DEBUGVV("[%s] -> CNonce X\n", request._remoteIdent.c_str());
+            Ret.Secret.concat(';');
+          }
+        }
+      }
+      // nc=...,
+      {
+        int indexNC = authHeader.indexOf("nc=",indexAttr);
+        if (indexNC >= 0) {
+          valStart = valEnd = &authHeader[indexNC+3];
+          String NC = getQuotedToken(valEnd,',');
+          ESPWS_DEBUGVV("[%s] -> NonceCount = '%s'\n", request._remoteIdent.c_str(), NC.c_str());
+#ifdef STRICT_PROTOCOL
+          if (NC.length() != 8) {
+            ESPWS_DEBUG("[%s] WARNING: Invalid nc field '%s'\n",
+                        request._remoteIdent.c_str(), NC.c_str());
+            break;
+          }
+#endif
+          if (NC <= NRec->NC) {
+            ESPWS_DEBUG("[%s] WARNING: Detected nc reversal, '%s' <= '%s'\n",
+                        request._remoteIdent.c_str(), NC.c_str(), NRec->NC.c_str());
+            Ret.State = AUTHHEADER_UNACCEPT;
+            break;
+          }
+          NRec->NC = std::move(NC);
+          Ret.Secret.concat(';');
+          Ret.Secret.concat(valStart,valEnd-valStart-1);
+        } else {
+          if (QoPLevel > 0) {
+            ESPWS_DEBUG("[%s] WARNING: Missing cnonce field in '%s'\n",
+                        request._remoteIdent.c_str(), &authHeader[indexAttr]);
+            break;
+          } else {
+            ESPWS_DEBUGVV("[%s] -> NonceCount X\n", request._remoteIdent.c_str());
+            Ret.Secret.concat(';');
+          }
+        }
+      }
+      putQuotedToken(request.methodToString(), Ret.Secret, ';');
+      // uri=...,
+      {
+        int indexURI = authHeader.indexOf("uri=",indexAttr);
+        if (indexURI < 0) {
+          ESPWS_DEBUG("[%s] WARNING: Missing uri field in '%s'\n",
+                      request._remoteIdent.c_str(), &authHeader[indexAttr]);
+          break;
+        }
+        valStart = valEnd = &authHeader[indexURI+4];
+        String URI = getQuotedToken(valEnd,',');
+        ESPWS_DEBUGVV("[%s] -> URI = '%s'\n", request._remoteIdent.c_str(), URI.c_str());
+#ifdef AUTH_CONSERVATIVE
+        if (!URI.startsWith(request.oUrl())) {
+          ESPWS_DEBUG("[%s] WARNING: Authorizing against URI '%s', expect '%s'\n",
+                      request._remoteIdent.c_str(), URI.c_str(), request.oUrl().c_str());
+          Ret.State = AUTHHEADER_UNACCEPT;
+          break;
+        }
+#endif
+        Ret.Secret.concat(';');
+        Ret.Secret.concat(valStart,valEnd-valStart-1);
+      }
+    } else {
+      Ret.Type = AUTH_OTHER;
+      Ret.Secret = &authHeader[indexAttr];
+    }
+    Ret.State = AUTHHEADER_PREAUTH;
+    break;
+  }
+
+  if ((Ret.State == AUTHHEADER_PREAUTH) && (Ret.Type & _AuthAcc == 0))
+    Ret.State = AUTHHEADER_UNACCEPT;
+  return Ret;
+}
+
+AuthSession* AsyncWebServer::_authSession(AsyncWebAuth &authInfo, AsyncWebRequest const &request) const {
+  switch (authInfo.Type) {
+    case AUTH_NONE:
+      ESPWS_DEBUGVV("[%s] Authorizing anonymous session...\n", request._remoteIdent.c_str());
+      return new AuthSession(_Auth->getSession(Credential(IdentityProvider::ANONYMOUS, EA_SECRET_NONE, String())));
+    case AUTH_BASIC:
+      ESPWS_DEBUGVV("[%s] Authorizing basic session...\n", request._remoteIdent.c_str());
+      return new AuthSession(_Auth->getSession(authInfo.UserName, EA_SECRET_PLAINTEXT, std::move(authInfo.Secret)));
+    case AUTH_DIGEST:
+      ESPWS_DEBUGVV("[%s] Authorizing digest session...\n", request._remoteIdent.c_str());
+      return new AuthSession(_Auth->getSession(authInfo.UserName, EA_SECRET_HTTPDIGESTAUTH_MD5, std::move(authInfo.Secret)));
+    default:
+      ESPWS_DEBUG("[%s] ERROR: Unrecognised authorization type '%s'\n", request._remoteIdent.c_str(), authInfo._typeToString());
+  }
+  return NULL;
+}
+
+void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest const &request, bool renew) const {
+  if (_AuthAcc & AUTH_REQUIRE != 0) {
+    if (_AuthAcc & AUTH_BASIC) {
+      String Message("Basic realm=");
+      putQuotedToken(_Realm, Message, ',', false, true);
+      response.addHeader("WWW-Authenticate", Message.c_str());
+    }
+
+    if (_AuthAcc & AUTH_DIGEST) {
+      time_t ExpTS = time(NULL) + _NonceLife;
+      String NewNonce = calcNonce(request._client.remoteIP().toString(), ExpTS, _Secret);
+      String Message("Digest realm=");
+      putQuotedToken(_Realm, Message, ',', false, true);
+      Message.concat(",qop=");
+      putQuotedToken("auth", Message, ',', false, true);
+      Message.concat(",nonce=");
+      putQuotedToken(NewNonce, Message, ',', false, true);
+      if (renew) Message.concat(",stale=true");
+      response.addHeader("WWW-Authenticate", Message.c_str());
+      LinkedList<NONCEREC>* DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
+      DAuthRecs->append(NONCEREC(std::move(NewNonce), ExpTS));
+    }
+  } else {
+    // No known authentication required, if we reach here, no further action would make differences
+    response.setCode(403);
+  }
+}
+
+bool AsyncWebServer::_checkACL(AsyncWebRequest const &request, AuthSession* session) const {
+  HTTPACL* eACL = _ACLs.get_if([&](HTTPACL const &r) {
+    if (r.METHODS & request.method() == 0) return false;
+    return (r.PATH.end()[-1] == '/')? request.url().startsWith(r.PATH) : request.url().equals(r.PATH);
+  });
+  return eACL? eACL->IDENTS.get_if([&](Identity * const &r){ return *r == session->IDENT; }) : false;
+}
+
+#endif

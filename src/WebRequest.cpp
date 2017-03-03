@@ -62,8 +62,8 @@ String urlEncode(char const *buf, size_t len) {
       Ret.concat('+');
     } else {
       Ret.concat('%');
-      Ret.concat(HexLookup[(*buf >> 4) & 0xF]);
-      Ret.concat(HexLookup[(*buf >> 0) & 0xF]);
+      Ret.concat(HexLookup_UC[(*buf >> 4) & 0xF]);
+      Ret.concat(HexLookup_UC[(*buf >> 0) & 0xF]);
     }
     buf++;
   }
@@ -85,14 +85,14 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 
     ItemType *_cur = NULL;
 
-    void startTimer() {
+    void startTimer(void) {
       if (!running) {
         running = true;
         os_timer_arm(&timer, SCHED_RES, true);
         ESPWS_DEBUGVV("<Scheduler> Start\n");
       }
     }
-    void stopTimer() {
+    void stopTimer(void) {
       if (running) {
         running = false;
         os_timer_disarm(&timer);
@@ -104,12 +104,12 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
     { ((RequestScheduler*)arg)->run(true); }
 
   public:
-    RequestScheduler()
+    RequestScheduler(void)
     : LinkedList(std::bind(&RequestScheduler::curValidator, this, std::placeholders::_1))
     {
       os_timer_setfn(&timer, &RequestScheduler::timerThunk, this);
     }
-    ~RequestScheduler() { stopTimer(); }
+    ~RequestScheduler(void) { stopTimer(); }
 
     void schedule(AsyncWebRequest *req) {
       if (append(req) == 0) startTimer();
@@ -155,13 +155,14 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
   , _state(REQUEST_SETUP)
   , _keepAlive(false)
   , _version(0)
-  , _method(0)
+  , _method(HTTP_NONE)
   //, _url()
   //, _host()
   //, _contentType()
   , _contentLength(0)
-  , _authType(AUTH_NONE)
-  //, _authorization()
+#ifdef HANDLE_AUTHENTICATION
+  , _session(NULL)
+#endif
   , _headers(NULL)
   , _queries(NULL)
 #ifdef HANDLE_REQUEST_CONTENT
@@ -204,15 +205,7 @@ AsyncWebRequest::~AsyncWebRequest(){
 }
 
 const char * AsyncWebRequest::methodToString() const {
-  if(_method == HTTP_ANY) return "ANY";
-  else if(_method & HTTP_GET) return "GET";
-  else if(_method & HTTP_POST) return "POST";
-  else if(_method & HTTP_DELETE) return "DELETE";
-  else if(_method & HTTP_PUT) return "PUT";
-  else if(_method & HTTP_PATCH) return "PATCH";
-  else if(_method & HTTP_HEAD) return "HEAD";
-  else if(_method & HTTP_OPTIONS) return "OPTIONS";
-  return "UNKNOWN";
+  return AsyncWebServer::mapMethod(_method);
 }
 
 ESPWS_DEBUGDO(const char* AsyncWebRequest::_stateToString(void) const {
@@ -229,15 +222,30 @@ ESPWS_DEBUGDO(const char* AsyncWebRequest::_stateToString(void) const {
   }
 })
 
+#ifdef HANDLE_AUTHENTICATION
+bool AsyncWebRequest::_setSession(AuthSession *session) {
+  delete _session;
+  if (session && _server._checkACL(*this, session)) {
+    _session = session;
+    return true;
+  }
+  _session = NULL;
+  delete session;
+  return false;
+}
+#endif
+
 void AsyncWebRequest::_recycleClient(void) {
   delete _response;
   _handler = NULL;
   _response = NULL;
 
+#ifdef HANDLE_AUTHENTICATION
+  _setSession(NULL);
+#endif
   // Note: Enable the following block of CGI-like features are to be implemented
 /*
   _contentType.clear(true);
-  _authorization.clear(true);
   _url.clear(true);
   _host.clear(true);
   _oUrl.clear(true);
@@ -251,9 +259,8 @@ void AsyncWebRequest::_recycleClient(void) {
 #endif
 */
 
-  _method = 0;
+  _method = HTTP_NONE;
   _contentLength = 0;
-  _authType = AUTH_NONE;
   _state = REQUEST_SETUP;
   // Note: the following two fields are the reasons we are here, so no need to touch
   //_keepAlive = false;
@@ -357,7 +364,6 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
     // Free up resources no longer needed
     // NOTE: these resources should not be freed if CGI-like features are to be implemented
     _contentType.clear(true);
-    _authorization.clear(true);
     _oUrl.clear(true);
     _oQuery.clear(true);
     _headers.clear();

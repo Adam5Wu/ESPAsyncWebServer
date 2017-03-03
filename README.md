@@ -12,9 +12,12 @@ Async HTTP and WebSocket Server for ESP8266 Arduino
 * Requires:
 	- [ESP8266 Arduino Core Fork](https://github.com/Adam5Wu/Arduino)
 	- [ESPAsyncTCP](https://github.com/me-no-dev/ESPAsyncTCP)
-* Potentially interesting:
+	- [ZWUtils-Arduino](https://github.com/Adam5Wu/ZWUtils-Arduino)
+* Optional:
 	- [ArduinoJson](https://github.com/bblanchon/ArduinoJson)
 	- [ESPVFATFS](https://github.com/Adam5Wu/ESPVFATFS)
+	- [ESPEasyAuth](https://github.com/Adam5Wu/ESPEasyAuth)
+* Potentially interesting:
 	- [esp8266FTPServer fork](https://github.com/Adam5Wu/esp8266FTPServer)
 
 ## Table of contents

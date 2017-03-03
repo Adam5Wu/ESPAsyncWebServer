@@ -50,10 +50,11 @@ class AsyncWebParser {
     { _request._contentType = std::move(newContentType); }
     void __setContentLength(size_t newContentLength)
     { _request._contentLength = newContentLength; }
-    void __setAuthType(WebServerRequestAuth newAuthType) { _request._authType = newAuthType; }
-    void __setAuthorization(String &newAuthorization)
-    { _request._authorization = std::move(newAuthorization); }
-    void __setAuthorization(const char *buf) { _request._authorization = buf; }
+
+#ifdef HANDLE_AUTHENTICATION
+    bool __setSession(AuthSession* session) { return _request._setSession(session); }
+#endif
+
     void __addHeader(String const &key, String const &value) {
       AsyncWebHeader* Header = _request._headers.get_if([&](AsyncWebHeader const &h){
         return key.equalsIgnoreCase(h.name);
@@ -106,16 +107,31 @@ class AsyncRequestHeadParser: public AsyncWebParser {
   private:
     HeaderParserState _state;
     String _temp;
+
     bool _expectingContinue = false;
+#ifdef HANDLE_AUTHENTICATION
+    String _authorization;
+#endif
 
     bool _parseLine(void);
     bool _parseReqStart(void);
     bool _parseReqHeader(void);
 
   public:
-    AsyncRequestHeadParser(AsyncWebRequest &request) : AsyncWebParser(request), _state(H_PARSER_ACCU) {}
+    AsyncRequestHeadParser(AsyncWebRequest &request)
+    : AsyncWebParser(request), _state(H_PARSER_ACCU), _expectingContinue(false)
+#ifdef HANDLE_AUTHENTICATION
+    //, _authorization()
+#endif
+    {}
 
     virtual void _parse(void *&buf, size_t &len) override;
+
+#ifdef HANDLE_AUTHENTICATION
+    AuthSession* _handleAuth(void);
+    void _requestAuth(bool renew = false);
+    void _rejectAuth(AuthSession *session);
+#endif
 
     ESPWS_DEBUGDO(const char* _stateToString(void) const override);
 };

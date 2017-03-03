@@ -29,47 +29,62 @@
 
 #include "StringArray.h"
 
+#include "Misc.h"
+
 #define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
 #define ESPWS_DEBUG_LEVEL 3
 
 #if ESPWS_DEBUG_LEVEL < 1
-#define ESPWS_DEBUGDO(...)
-#define ESPWS_DEBUG(...)
+  #define ESPWS_DEBUGDO(...)
+  #define ESPWS_DEBUG(...)
 #else
-#define ESPWS_DEBUGDO(...) __VA_ARGS__
-#define ESPWS_DEBUG(...) Serial.printf(__VA_ARGS__)
+  #define ESPWS_DEBUGDO(...) __VA_ARGS__
+  #define ESPWS_DEBUG(...) Serial.printf(__VA_ARGS__)
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 2
-#define ESPWS_DEBUGVDO(...)
-#define ESPWS_DEBUGV(...)
+  #define ESPWS_DEBUGVDO(...)
+  #define ESPWS_DEBUGV(...)
 #else
-#define ESPWS_DEBUGVDO(...) __VA_ARGS__
-#define ESPWS_DEBUGV(...) Serial.printf(__VA_ARGS__)
+  #define ESPWS_DEBUGVDO(...) __VA_ARGS__
+  #define ESPWS_DEBUGV(...) Serial.printf(__VA_ARGS__)
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 3
-#define ESPWS_DEBUGVVDO(...)
-#define ESPWS_DEBUGVV(...)
+  #define ESPWS_DEBUGVVDO(...)
+  #define ESPWS_DEBUGVV(...)
 #else
-#define ESPWS_DEBUGVVDO(...) __VA_ARGS__
-#define ESPWS_DEBUGVV(...) Serial.printf(__VA_ARGS__)
+  #define ESPWS_DEBUGVVDO(...) __VA_ARGS__
+  #define ESPWS_DEBUGVV(...) Serial.printf(__VA_ARGS__)
 #endif
+
+//#define STRICT_PROTOCOL
 
 #define HANDLE_REQUEST_CONTENT
 #define HANDLE_REQUEST_CONTENT_SIMPLEFORM
 #define HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+
+#define HANDLE_AUTHENTICATION
+#define AUTH_CONSERVATIVE
 
 #define REQUEST_PARAM_MEMCACHE    1024
 #define REQUEST_PARAM_KEYMAX      128
 
 #define DEFAULT_IDLE_TIMEOUT      10        // Unit s
 #define DEFAULT_ACK_TIMEOUT       10 * 1000 // Unit ms
-#define DEFAULT_REALM             "ESP8266"
 #define DEFAULT_CACHE_CTRL        "public, no-cache"
 #define DEFAULT_INDEX_FILE        "index.htm"
 
+#ifdef HANDLE_AUTHENTICATION
+#define DEFAULT_REALM             "ESP8266"
+#define DEFAULT_NONCE_LIFE        300
+#define DEFAULT_NONCE_RENWEAL     30
+
+#include "ESPEasyAuth.h"
+#endif
+
 typedef enum {
+  HTTP_NONE    = 0b00000000,
   HTTP_GET     = 0b00000001,
   HTTP_POST    = 0b00000010,
   HTTP_DELETE  = 0b00000100,
@@ -77,9 +92,11 @@ typedef enum {
   HTTP_PATCH   = 0b00010000,
   HTTP_HEAD    = 0b00100000,
   HTTP_OPTIONS = 0b01000000,
-  HTTP_ANY     = 0b01111111,
+  HTTP_UNKNOWN = 0b10000000,
 } WebRequestMethod;
+
 typedef uint8_t WebRequestMethodComposite;
+extern WebRequestMethodComposite HTTP_ANY;
 
 /*
  * HEADER :: Hold a header and its values
@@ -90,11 +107,9 @@ class AsyncWebHeader {
     String name;
     StringArray values;
 
-    AsyncWebHeader(const String& n, const String& v)
-    : name(n) { values.append(v); }
+    AsyncWebHeader(const String& n, const String& v): name(n) { values.append(v); }
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
-    AsyncWebHeader(String&& n, String&& v)
-    : name(std::move(n)) { values.append(std::move(v)); }
+    AsyncWebHeader(String&& n, String&& v): name(std::move(n)) { values.append(std::move(v)); }
 #endif
 };
 
@@ -107,11 +122,9 @@ class AsyncWebQuery {
     String name;
     String value;
 
-    AsyncWebQuery(const String& n, const String& v)
-    : name(n), value(v) {}
+    AsyncWebQuery(const String& n, const String& v): name(n), value(v) {}
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
-    AsyncWebQuery(String&& n, String&& v)
-    : name(std::move(n)), value(std::move(v)) {}
+    AsyncWebQuery(String&& n, String&& v): name(std::move(n)), value(std::move(v)) {}
 #endif
 };
 
@@ -123,11 +136,9 @@ class AsyncWebParam {
     String name;
     String value;
 
-    AsyncWebParam(const String& n, const String& v)
-    : name(n), value(v) {}
+    AsyncWebParam(const String& n, const String& v): name(n), value(v) {}
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
-    AsyncWebParam(String&& n, String&& v)
-    : name(std::move(n)), value(std::move(v)) {}
+    AsyncWebParam(String&& n, String&& v): name(std::move(n)), value(std::move(v)) {}
 #endif
 };
 #endif
@@ -138,11 +149,9 @@ class AsyncWebUpload : public AsyncWebParam {
     String contentType;
     size_t contentLength;
 
-    AsyncWebUpload(const String& n, const String& v)
-    : AsyncWebParam(n, v) {}
+    AsyncWebUpload(const String& n, const String& v): AsyncWebParam(n, v) {}
 #ifdef __GXX_EXPERIMENTAL_CXX0X__
-    AsyncWebUpload(String&& n, String&& v)
-    : AsyncWebParam(std::move(n), std::move(v)) {}
+    AsyncWebUpload(String&& n, String&& v): AsyncWebParam(std::move(n), std::move(v)) {}
 #endif
 };
 #endif
@@ -167,12 +176,6 @@ typedef enum {
   REQUEST_FINALIZE
 } WebServerRequestState;
 
-typedef enum {
-  AUTH_NONE, AUTH_BASIC, AUTH_DIGEST, AUTH_OTHER
-} WebServerRequestAuth;
-
-extern String const EMPTY_STRING;
-extern uint8_t const HexLookup[];
 String urlDecode(char const *buf, size_t len);
 String urlEncode(char const *buf, size_t len);
 
@@ -196,7 +199,7 @@ class AsyncWebRequest {
 
     bool _keepAlive;
     uint8_t _version;
-    WebRequestMethodComposite _method;
+    WebRequestMethod _method;
     String _url;
     String _oUrl;
     String _oQuery;
@@ -205,8 +208,9 @@ class AsyncWebRequest {
     String _contentType;
     size_t _contentLength;
 
-    WebServerRequestAuth _authType;
-    String _authorization;
+#ifdef HANDLE_AUTHENTICATION
+    AuthSession* _session;
+#endif
 
     LinkedList<AsyncWebHeader> _headers;
     LinkedList<AsyncWebQuery> _queries;
@@ -226,12 +230,16 @@ class AsyncWebRequest {
     void _onAck(size_t len, uint32_t time);
     void _onError(int8_t error);
     void _onTimeout(uint32_t time);
-    void _onDisconnect();
+    void _onDisconnect(void);
     void _onData(void *buf, size_t len);
 
     void _setUrl(String const& url) { _setUrl(std::move(String(url))); }
     void _setUrl(String && url);
     void _parseQueries(char *buf);
+
+#ifdef HANDLE_AUTHENTICATION
+    bool _setSession(AuthSession *session);
+#endif
 
     template<typename T>
     T& _addUniqueNameVal(LinkedList<T>& storage, String &name, String &value) {
@@ -250,7 +258,6 @@ class AsyncWebRequest {
     }
 
     void _recycleClient(void);
-
     ESPWS_DEBUGDO(const char* _stateToString(void) const);
 
   public:
@@ -259,35 +266,36 @@ class AsyncWebRequest {
     ESPWS_DEBUGDO(String const _remoteIdent);
 
     AsyncWebRequest(AsyncWebServer const &server, AsyncClient &client);
-    ~AsyncWebRequest();
+    ~AsyncWebRequest(void);
 
     bool _makeProgress(size_t resShare, bool timer);
 
-    uint8_t version() const { return _version; }
-    WebRequestMethodComposite method() const { return _method; }
-    const char * methodToString() const;
-    const String& url() const { return _url; }
-    const String& oUrl() const { return _oUrl; }
-    const String& oQuery() const { return _oQuery; }
+    uint8_t version(void) const { return _version; }
+    WebRequestMethod method(void) const { return _method; }
+    const char * methodToString(void) const;
+    const String& url(void) const { return _url; }
+    const String& oUrl(void) const { return _oUrl; }
+    const String& oQuery(void) const { return _oQuery; }
 
-    const String& host() const { return _host; }
-    bool keepAlive() const { return _keepAlive; }
+    const String& host(void) const { return _host; }
+    bool keepAlive(void) const { return _keepAlive; }
 
-    const String& contentType() const { return _contentType; }
+    const String& contentType(void) const { return _contentType; }
     bool contentType(const String& type) const { return _contentType.equalsIgnoreCase(type); }
-    size_t contentLength() const { return _contentLength; }
+    size_t contentLength(void) const { return _contentLength; }
 
-    WebServerRequestAuth authType(void) const { return _authType; }
-    const String& authorization() const { return _authorization; }
+#ifdef HANDLE_AUTHENTICATION
+    AuthSession* session(void) const { return _session; }
+#endif
 
-    size_t headers() const { return _headers.length(); }
+    size_t headers(void) const { return _headers.length(); }
     bool hasHeader(const String& name) const;
     AsyncWebHeader const* getHeader(const String& name) const;
 
     void enumHeaders(LinkedList<AsyncWebHeader>::Predicate const& Pred)
     { _headers.get_if(Pred); }
 
-    size_t queries() const { return _queries.length(); }
+    size_t queries(void) const { return _queries.length(); }
     bool hasQuery(const String& name) const;
     AsyncWebQuery const* getQuery(const String& name) const;
 
@@ -297,7 +305,7 @@ class AsyncWebRequest {
 #ifdef HANDLE_REQUEST_CONTENT
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-    size_t params() const { return _params.length(); }
+    size_t params(void) const { return _params.length(); }
     bool hasParam(const String& name) const;
     AsyncWebParam const* getParam(const String& name) const;
 
@@ -306,7 +314,7 @@ class AsyncWebRequest {
 #endif
 
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-    size_t uploads() const { return _uploads.length(); }
+    size_t uploads(void) const { return _uploads.length(); }
     bool hasUpload(const String& name) const;
     AsyncWebUpload const* getUpload(const String& name) const;
 
@@ -485,6 +493,40 @@ class AsyncWebHandler : public AsyncWebFilterable {
 class AsyncCallbackWebHandler;
 class AsyncStaticWebHandler;
 
+#ifdef HANDLE_AUTHENTICATION
+typedef enum {
+  AUTHHEADER_ANONYMOUS,
+  AUTHHEADER_MALFORMED,
+  AUTHHEADER_NORECORD,
+  AUTHHEADER_UNACCEPT,
+  AUTHHEADER_EXPIRED,
+  AUTHHEADER_PREAUTH,
+} WebAuthHeaderState;
+
+typedef enum {
+  AUTH_NONE   = 0b00000001,
+  AUTH_BASIC  = 0b00000010,
+  AUTH_DIGEST = 0b00000100,
+  AUTH_OTHER  = 0b10000000,
+} WebAuthType;
+
+typedef uint8_t WebAuthTypeComposite;
+extern WebAuthTypeComposite AUTH_ANY;
+extern WebAuthTypeComposite AUTH_REQUIRE;
+extern WebAuthTypeComposite AUTH_SECURE;
+
+struct AsyncWebAuth {
+  WebAuthHeaderState State;
+  WebAuthType Type;
+  String UserName;
+  String Secret;
+
+  AsyncWebAuth(WebAuthHeaderState state, WebAuthType type): State(state), Type(type) {}
+  ESPWS_DEBUGDO(const char* _stateToString(void) const);
+  ESPWS_DEBUGDO(const char* _typeToString(void) const);
+};
+#endif
+
 /*
  * SERVER :: One instance
  * */
@@ -556,11 +598,52 @@ class AsyncWebServer {
 
     void _handleClient(AsyncClient* c);
 
+#ifdef HANDLE_AUTHENTICATION
+    SessionAuthority *_Auth;
+
+    WebAuthTypeComposite _AuthAcc;
+    String _Realm;
+    String _Secret;
+    time_t _NonceLife;
+
+    struct NONCEREC {
+      String const NONCE;
+      time_t const EXPIRY;
+      String NC;
+
+      NONCEREC(String const &nonce, time_t expiry): NONCE(nonce), EXPIRY(expiry) {}
+#ifdef __GXX_EXPERIMENTAL_CXX0X__
+      NONCEREC(String &&nonce, time_t expiry): NONCE(std::move(nonce)), EXPIRY(expiry) {}
+#endif
+    };
+    LinkedList<NONCEREC> _DAuthRecs;
+
+    struct HTTPACL {
+      String PATH;
+      WebRequestMethodComposite METHODS;
+      LinkedList<Identity*> IDENTS;
+
+      HTTPACL(String const &p): PATH(p), METHODS(HTTP_NONE), IDENTS(NULL) {}
+#ifdef __GXX_EXPERIMENTAL_CXX0X__
+      HTTPACL(String &&p): PATH(std::move(p)), METHODS(HTTP_NONE), IDENTS(NULL) {}
+#endif
+    };
+    LinkedList<HTTPACL> _ACLs;
+    void loadACL(Stream &source);
+#endif
+
   public:
     static char const *VERTOKEN;
 
     AsyncWebServer(uint16_t port);
     ~AsyncWebServer() {}
+
+#ifdef HANDLE_AUTHENTICATION
+    void configAuthority(SessionAuthority &Auth, Stream &ACLStream);
+    void configRealm(String const &realm, String const &secret,
+                     WebAuthTypeComposite authAccept = AUTH_ANY,
+                     time_t nonceLife = DEFAULT_NONCE_LIFE);
+#endif
 
     void begin() { _server.begin(); }
 #if ASYNC_TCP_SSL_ENABLED
@@ -649,6 +732,18 @@ class AsyncWebServer {
 
     void _rewriteRequest(AsyncWebRequest &request) const;
     void _attachHandler(AsyncWebRequest &request) const;
+
+#ifdef HANDLE_AUTHENTICATION
+    AsyncWebAuth _parseAuthHeader(String &authHeader, AsyncWebRequest const &request) const;
+    AuthSession* _authSession(AsyncWebAuth &authInfo, AsyncWebRequest const &request) const;
+    void _genAuthHeader(AsyncWebResponse &response, AsyncWebRequest const &request, bool renew) const;
+    bool _checkACL(AsyncWebRequest const &request, AuthSession* session) const;
+#endif
+
+    static WebRequestMethod parseMethod(char const *Str);
+    static WebRequestMethodComposite parseMethods(char *Str);
+    static const char* mapMethod(WebRequestMethod method);
+    static String mapMethods(WebRequestMethodComposite methods);
 };
 
 #include "WebResponseImpl.h"

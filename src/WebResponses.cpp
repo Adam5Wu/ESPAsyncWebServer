@@ -52,7 +52,7 @@ AsyncWebResponse::AsyncWebResponse(int code)
   , _request(NULL)
 {}
 
-const char* AsyncWebResponse::_responseCodeToString() {
+const char* AsyncWebResponse::_responseCodeToString(void) {
   switch (_code) {
     case 100: return "Continue";
     case 101: return "Switching Protocols";
@@ -104,9 +104,12 @@ void AsyncWebResponse::setCode(int code) {
 }
 
 void AsyncWebResponse::_respond(AsyncWebRequest &request) {
+  // Disable connection keep-alive if response is an error or redirection
+  if (_code < 200 || _code >= 300 && _code != 304) {
+    request.noKeepAlive();
+  }
+
   _request = &request;
-  // Disable connection keep-alive if response is an error
-  if (_code < 200 || _code >= 400) request.noKeepAlive();
 }
 
 ESPWS_DEBUGDO(const char* AsyncWebResponse::_stateToString(void) const {
@@ -583,10 +586,10 @@ void AsyncChunkedResponse::_prepareContentSendBuf(size_t space) {
 size_t AsyncChunkedResponse::_fillBuffer(uint8_t *buf, size_t maxLen){
   size_t chunkLen = _callback(buf+6, maxLen-8, _bufPrepared-(8*_chunkCnt));
   // Encapsulate chunk
-  buf[0] = HexLookup[(chunkLen >> 12) & 0xF];
-  buf[1] = HexLookup[(chunkLen >> 8) & 0xF];
-  buf[2] = HexLookup[(chunkLen >> 4) & 0xF];
-  buf[3] = HexLookup[(chunkLen >> 0) & 0xF];
+  buf[0] = HexLookup_UC[(chunkLen >> 12) & 0xF];
+  buf[1] = HexLookup_UC[(chunkLen >> 8) & 0xF];
+  buf[2] = HexLookup_UC[(chunkLen >> 4) & 0xF];
+  buf[3] = HexLookup_UC[(chunkLen >> 0) & 0xF];
   buf[4] = '\r';
   buf[5] = '\n';
   buf[6+chunkLen] = '\r';

@@ -4,6 +4,9 @@
 // This demo requires ESPVFATFS library, found here:
 // https://github.com/Adam5Wu/ESPVFATFS
 
+// This demo requires ZWUtils-Arduino library, found here:
+// https://github.com/Adam5Wu/ZWUtils-Arduino
+
 #define NO_GLOBAL_SPIFFS
 
 #include <vfatfs_api.h>
