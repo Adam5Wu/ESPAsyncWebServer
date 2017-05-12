@@ -33,7 +33,35 @@
 #include "vfatfs_api.h"
 #endif
 
-WebRequestMethodComposite HTTP_ANY = 0b01111111;
+WebRequestMethodComposite const HTTP_BASIC          = 0b0000000000001111; // GET,PUT,POST,HEAD
+WebRequestMethodComposite const HTTP_BASIC_READ     = 0b0000000000001001; // GET,HEAD
+WebRequestMethodComposite const HTTP_BASIC_WRITE    = HTTP_BASIC&~HTTP_BASIC_READ;
+
+WebRequestMethodComposite const HTTP_EXT            = 0b0000000001110000; // DELETE,PATCH,OPTIONS
+WebRequestMethodComposite const HTTP_EXT_READ       = 0b0000000001000000; // OPTIONS
+WebRequestMethodComposite const HTTP_EXT_WRITE      = HTTP_EXT&~HTTP_EXT_READ;
+
+WebRequestMethodComposite const HTTP_STANDARD       = HTTP_BASIC|HTTP_EXT;
+WebRequestMethodComposite const HTTP_STANDARD_READ  = HTTP_BASIC_READ|HTTP_EXT_READ;
+WebRequestMethodComposite const HTTP_STANDARD_WRITE = HTTP_BASIC_WRITE|HTTP_EXT_WRITE;
+
+#ifdef HANDLE_WEBDAV
+WebRequestMethodComposite const HTTP_DAVEXT         = 0b0011111110000000;
+WebRequestMethodComposite const HTTP_DAVEXT_READ    = 0b0001000000000000; // PROPFIND
+WebRequestMethodComposite const HTTP_DAVEXT_WRITE   = HTTP_DAVEXT&~HTTP_DAVEXT_READ;
+
+WebRequestMethodComposite const HTTP_WEBDAV         = HTTP_STANDARD|HTTP_DAVEXT;
+WebRequestMethodComposite const HTTP_WEBDAV_READ    = HTTP_STANDARD_READ|HTTP_DAVEXT_READ;
+WebRequestMethodComposite const HTTP_WEBDAV_WRITE   = HTTP_STANDARD_WRITE|HTTP_DAVEXT_WRITE;
+
+WebRequestMethodComposite const HTTP_ANY            = HTTP_WEBDAV;
+WebRequestMethodComposite const HTTP_ANY_READ       = HTTP_WEBDAV_READ;
+WebRequestMethodComposite const HTTP_ANY_WRITE      = HTTP_WEBDAV_WRITE;
+#else
+WebRequestMethodComposite const HTTP_ANY            = HTTP_STANDARD;
+WebRequestMethodComposite const HTTP_ANY_READ       = HTTP_STANDARD_READ;
+WebRequestMethodComposite const HTTP_ANY_WRITE      = HTTP_STANDARD_WRITE;
+#endif
 
 bool ON_STA_FILTER(AsyncWebRequest const &request) {
   return WiFi.localIP() == request._client.localIP();
@@ -63,7 +91,7 @@ class AnonymousAccountAuthority : public IdentityProvider, public BasicAuthorize
 } ANONYMOUS_AUTH;
 
 static SessionAuthority ANONYMOUS_SESSIONS(&ANONYMOUS_AUTH, &ANONYMOUS_AUTH);
-static String const OPENACL("/:*:Anonymous");
+static String const OPENACL("/:*-R:Anonymous");
 #endif
 
 AsyncWebServer::AsyncWebServer(uint16_t port)
@@ -115,12 +143,28 @@ WebRequestMethod AsyncWebServer::parseMethod(char const *Str) {
     return HTTP_POST;
   } else if (strcmp(Str, "HEAD") == 0) {
     return HTTP_HEAD;
-  } else if (strcmp(Str, "PATCH") == 0) {
-    return HTTP_PATCH;
   } else if (strcmp(Str, "DELETE") == 0) {
     return HTTP_DELETE;
+  } else if (strcmp(Str, "PATCH") == 0) {
+    return HTTP_PATCH;
   } else if (strcmp(Str, "OPTIONS") == 0) {
     return HTTP_OPTIONS;
+#ifdef HANDLE_WEBDAV
+  } else if (strcmp(Str, "COPY") == 0) {
+    return HTTP_COPY;
+  } else if (strcmp(Str, "MOVE") == 0) {
+    return HTTP_MOVE;
+  } else if (strcmp(Str, "MKCOL") == 0) {
+    return HTTP_MKCOL;
+  } else if (strcmp(Str, "LOCK") == 0) {
+    return HTTP_LOCK;
+  } else if (strcmp(Str, "UNLOCK") == 0) {
+    return HTTP_UNLOCK;
+  } else if (strcmp(Str, "PROPFIND") == 0) {
+    return HTTP_PROPFIND;
+  } else if (strcmp(Str, "PROPPATCH") == 0) {
+    return HTTP_PROPPATCH;
+#endif
   }
   return HTTP_UNKNOWN;
 }
@@ -132,22 +176,56 @@ WebRequestMethodComposite AsyncWebServer::parseMethods(char *Str) {
     while (*Str && *Str !=',') Str++;
     if (*Str) *Str++ = '\0';
     else Str = NULL;
-    if (Ptr[0] == '*' && !Ptr[1]) Ret |= HTTP_ANY;
-    else Ret |= parseMethod(Ptr);
+
+    WebRequestMethodComposite Group = 0;
+    if (Ptr[0] == '*') {
+      if (!Ptr[1]) {
+        // Short-hand for standard methods
+        Group = HTTP_STANDARD;
+      } else if (Ptr[1] == '-') {
+        if (!Ptr[2]) Group = HTTP_BASIC;
+        else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_BASIC_READ;
+        else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_BASIC_WRITE;
+      } else if (Ptr[1] == '+') {
+        if (!Ptr[2]) Group = HTTP_STANDARD;
+        else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_STANDARD_READ;
+        else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_STANDARD_WRITE;
+      } else if (Ptr[1] == '*') {
+        if (!Ptr[2]) Group = HTTP_ANY;
+        else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_ANY_READ;
+        else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_ANY_WRITE;
+#ifdef HANDLE_WEBDAV
+      } else if (Ptr[1] == '@') {
+        if (!Ptr[2]) Group = HTTP_WEBDAV;
+        else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_WEBDAV_READ;
+        else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_WEBDAV_WRITE;
+#endif
+      }
+    }
+    Ret |= Group? Group : parseMethod(Ptr);
   }
   return Ret;
 }
 
 const char* AsyncWebServer::mapMethod(WebRequestMethod method) {
   switch (method) {
-    case HTTP_NONE: return "(?Unspecified?)";
+    case HTTP_NONE: return "<Unspecified>";
     case HTTP_GET: return "GET";
-    case HTTP_POST: return "POST";
-    case HTTP_DELETE: return "DELETE";
     case HTTP_PUT: return "PUT";
-    case HTTP_PATCH: return "PATCH";
+    case HTTP_POST: return "POST";
     case HTTP_HEAD: return "HEAD";
+    case HTTP_DELETE: return "DELETE";
+    case HTTP_PATCH: return "PATCH";
     case HTTP_OPTIONS: return "OPTIONS";
+#ifdef HANDLE_WEBDAV
+    case HTTP_COPY: return "COPY";
+    case HTTP_MOVE: return "MOVE";
+    case HTTP_MKCOL: return "MKCOL";
+    case HTTP_LOCK: return "LOCK";
+    case HTTP_UNLOCK: return "UNLOCK";
+    case HTTP_PROPFIND: return "PROPFIND";
+    case HTTP_PROPPATCH: return "PROPPATCH";
+#endif
     case HTTP_UNKNOWN: return "UNKNOWN";
     default: return "(?Composite?)";
   }
@@ -292,9 +370,9 @@ void AsyncWebServer::_attachHandler(AsyncWebRequest &request) const {
 }
 
 #ifdef HANDLE_AUTHENTICATION
-WebAuthTypeComposite AUTH_ANY = 0b00000111;
-WebAuthTypeComposite AUTH_REQUIRE = 0b00000110;
-WebAuthTypeComposite AUTH_SECURE = 0b00000100;
+WebAuthTypeComposite const AUTH_ANY = 0b00000111;
+WebAuthTypeComposite const AUTH_REQUIRE = 0b00000110;
+WebAuthTypeComposite const AUTH_SECURE = 0b00000100;
 
 ESPWS_DEBUGDO(const char* AsyncWebAuth::_stateToString(void) const {
   switch (State) {
@@ -548,14 +626,13 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader, AsyncWebReques
         valStart = valEnd = &authHeader[indexURI+4];
         String URI = getQuotedToken(valEnd,',');
         ESPWS_DEBUGVV("[%s] -> URI = '%s'\n", request._remoteIdent.c_str(), URI.c_str());
-#ifdef AUTH_CONSERVATIVE
-        if (!URI.startsWith(request.oUrl())) {
+        String reqUri = request.oUrl()+request.oQuery();
+        if (!URI.equals(reqUri)) {
           ESPWS_DEBUG("[%s] WARNING: Authorizing against URI '%s', expect '%s'\n",
-                      request._remoteIdent.c_str(), URI.c_str(), request.oUrl().c_str());
+                      request._remoteIdent.c_str(), URI.c_str(), reqUri.c_str());
           Ret.State = AUTHHEADER_UNACCEPT;
           break;
         }
-#endif
         Ret.Secret.concat(';');
         Ret.Secret.concat(valStart,valEnd-valStart-1);
       }

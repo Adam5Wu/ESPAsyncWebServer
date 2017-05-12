@@ -65,7 +65,8 @@
 #define HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 
 #define HANDLE_AUTHENTICATION
-#define AUTH_CONSERVATIVE
+
+#define HANDLE_WEBDAV
 
 #define REQUEST_PARAM_MEMCACHE    1024
 #define REQUEST_PARAM_KEYMAX      128
@@ -84,20 +85,41 @@
 #endif
 
 typedef enum {
-  HTTP_NONE    = 0b00000000,
-  HTTP_GET     = 0b00000001,
-  HTTP_POST    = 0b00000010,
-  HTTP_DELETE  = 0b00000100,
-  HTTP_PUT     = 0b00001000,
-  HTTP_PATCH   = 0b00010000,
-  HTTP_HEAD    = 0b00100000,
-  HTTP_OPTIONS = 0b01000000,
-  HTTP_UNKNOWN = 0b10000000,
+  HTTP_NONE      = 0b0000000000000000,
+  HTTP_GET       = 0b0000000000000001,
+  HTTP_PUT       = 0b0000000000000010,
+  HTTP_POST      = 0b0000000000000100,
+  HTTP_HEAD      = 0b0000000000001000,
+  HTTP_DELETE    = 0b0000000000010000,
+  HTTP_PATCH     = 0b0000000000100000,
+  HTTP_OPTIONS   = 0b0000000001000000,
+#ifdef HANDLE_WEBDAV
+  HTTP_COPY      = 0b0000000010000000,
+  HTTP_MOVE      = 0b0000000100000000,
+  HTTP_MKCOL     = 0b0000001000000000,
+  HTTP_LOCK      = 0b0000010000000000,
+  HTTP_UNLOCK    = 0b0000100000000000,
+  HTTP_PROPFIND  = 0b0001000000000000,
+  HTTP_PROPPATCH = 0b0010000000000000,
+#endif
+  HTTP_UNKNOWN   = 0b1000000000000000,
 } WebRequestMethod;
 
-typedef uint8_t WebRequestMethodComposite;
-extern WebRequestMethodComposite HTTP_ANY;
-
+typedef uint16_t WebRequestMethodComposite;
+extern WebRequestMethodComposite const HTTP_ANY;
+extern WebRequestMethodComposite const HTTP_ANY_READ;
+extern WebRequestMethodComposite const HTTP_ANY_WRITE;
+extern WebRequestMethodComposite const HTTP_STANDARD;
+extern WebRequestMethodComposite const HTTP_STANDARD_READ;
+extern WebRequestMethodComposite const HTTP_STANDARD_WRITE;
+extern WebRequestMethodComposite const HTTP_BASIC;
+extern WebRequestMethodComposite const HTTP_BASIC_READ;
+extern WebRequestMethodComposite const HTTP_BASIC_WRITE;
+#ifdef HANDLE_WEBDAV
+extern WebRequestMethodComposite const HTTP_WEBDAV;
+extern WebRequestMethodComposite const HTTP_WEBDAV_READ;
+extern WebRequestMethodComposite const HTTP_WEBDAV_WRITE;
+#endif
 /*
  * HEADER :: Hold a header and its values
  * */
@@ -511,9 +533,9 @@ typedef enum {
 } WebAuthType;
 
 typedef uint8_t WebAuthTypeComposite;
-extern WebAuthTypeComposite AUTH_ANY;
-extern WebAuthTypeComposite AUTH_REQUIRE;
-extern WebAuthTypeComposite AUTH_SECURE;
+extern WebAuthTypeComposite const AUTH_ANY;
+extern WebAuthTypeComposite const AUTH_REQUIRE;
+extern WebAuthTypeComposite const AUTH_SECURE;
 
 struct AsyncWebAuth {
   WebAuthHeaderState State;
