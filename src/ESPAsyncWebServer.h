@@ -31,15 +31,20 @@
 
 #include "Misc.h"
 
-#define ESPWS_LOG(...) Serial.printf(__VA_ARGS__)
-#define ESPWS_DEBUG_LEVEL 3
+#ifndef ESPWS_LOG
+#define ESPWS_LOG(...) ESPZW_LOG(__VA_ARGS__)
+#endif
+
+#ifndef ESPWS_DEBUG_LEVEL
+#define ESPWS_DEBUG_LEVEL 1
+#endif
 
 #if ESPWS_DEBUG_LEVEL < 1
 	#define ESPWS_DEBUGDO(...)
 	#define ESPWS_DEBUG(...)
 #else
 	#define ESPWS_DEBUGDO(...) __VA_ARGS__
-	#define ESPWS_DEBUG(...) Serial.printf(__VA_ARGS__)
+	#define ESPWS_DEBUG(...) ESPWS_LOG(__VA_ARGS__)
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 2
@@ -47,7 +52,7 @@
 	#define ESPWS_DEBUGV(...)
 #else
 	#define ESPWS_DEBUGVDO(...) __VA_ARGS__
-	#define ESPWS_DEBUGV(...) Serial.printf(__VA_ARGS__)
+	#define ESPWS_DEBUGV(...) ESPWS_LOG(__VA_ARGS__)
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 3
@@ -55,7 +60,7 @@
 	#define ESPWS_DEBUGVV(...)
 #else
 	#define ESPWS_DEBUGVVDO(...) __VA_ARGS__
-	#define ESPWS_DEBUGVV(...) Serial.printf(__VA_ARGS__)
+	#define ESPWS_DEBUGVV(...) ESPWS_LOG(__VA_ARGS__)
 #endif
 
 #define STRICT_PROTOCOL
