@@ -82,7 +82,7 @@ extern "C" {
 	#include "user_interface.h"
 }
 
-class AnonymousAccountAuthority : public IdentityProvider, public BasicAuthorizer {
+class AnonymousAccountAuthority : public DummyIdentityProvider, public BasicAuthorizer {
 	public:
 		virtual Identity& getIdentity(String const& identName) const override
 		{ return identName.equalsIgnoreCase(ANONYMOUS.ID)? ANONYMOUS : UNKNOWN_IDENTITY; }
@@ -127,9 +127,9 @@ void AsyncWebServer::configAuthority(SessionAuthority &Auth, Stream &ACLStream) 
 
 void AsyncWebServer::configRealm(String const &realm, String const &secret,
 	WebAuthTypeComposite authAccept, time_t nonceLife) {
-	_AuthAcc = authAccept;
 	_Realm = realm;
-	_Secret = secret;
+	if (!secret.empty()) _Secret = secret;
+	_AuthAcc = authAccept;
 	_NonceLife = nonceLife;
 }
 #endif
@@ -260,7 +260,7 @@ void AsyncWebServer::loadACL(Stream &source) {
 		}
 		HTTPACL ACL(getQuotedToken(Ptr, ':'));
 		ACL.METHODS = parseMethods(getQuotedToken(Ptr, ':').begin());
-		ACL.IDENTS = _Auth->IDP->parseIdentities(String(Ptr).begin());
+		ACL.IDENTS = _Auth->IDP->parseIdentities(Ptr);
 		if (!ACL.METHODS) {
 			ESPWS_DEBUG("WARNING: Ineffective ACL on '%s' with no method specified\n",
 				ACL.PATH.c_str());
@@ -384,9 +384,9 @@ void AsyncWebServer::_attachHandler(AsyncWebRequest &request) const {
 }
 
 #ifdef HANDLE_AUTHENTICATION
-WebAuthTypeComposite const AUTH_ANY = 0b00000111;
-WebAuthTypeComposite const AUTH_REQUIRE = 0b00000110;
-WebAuthTypeComposite const AUTH_SECURE = 0b00000100;
+WebAuthTypeComposite const AUTH_ANY = AUTH_REQUIRE|AUTH_NONE;
+WebAuthTypeComposite const AUTH_REQUIRE = AUTH_BASIC|AUTH_DIGEST;
+WebAuthTypeComposite const AUTH_SECURE = AUTH_DIGEST;
 
 ESPWS_DEBUGDO(const char* AsyncWebAuth::_stateToString(void) const {
 	switch (State) {
@@ -452,18 +452,25 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 			String Decoded(' ', base64_decode_expected_len(srcLen));
 			size_t decLen = base64_decode_chars(&authHeader[indexAttr], srcLen, Decoded.begin());
 			if (decLen != srcLen) {
-				ESPWS_DEBUG("[%s] WARNING: Base64 decoding failed with %d trailing bytes\n",
-					request._remoteIdent.c_str(), srcLen-decLen);
+				ESPWS_DEBUG("[%s] WARNING: Base64 decoding failed with %d trailing bytes '%s'\n",
+					request._remoteIdent.c_str(), srcLen-decLen, &authHeader[indexAttr+decLen]);
+#ifdef STRICT_PROTOCOL
+				ESPWS_DEBUGV("[%s] Partial decode result: '%s'\n", request._remoteIdent.c_str(), Decoded.c_str());
 				break;
+#endif
 			}
 			int indexSecret = Decoded.indexOf(':');
 			if (indexSecret <= 0) {
 				ESPWS_DEBUG("[%s] WARNING: Missing password field separator in '%s'\n",
 					request._remoteIdent.c_str(), Decoded.c_str());
+#ifdef STRICT_PROTOCOL
+				ESPWS_DEBUGV("[%s] Auth Token: '%s'\n", request._remoteIdent.c_str(), Decoded.c_str());
 				break;
+#endif
+			} else {
+				Ret.Secret = &Decoded[indexSecret+1];
+				Decoded.remove(indexSecret);
 			}
-			Ret.Secret = &Decoded[indexSecret+1];
-			Decoded.remove(indexSecret);
 			Ret.UserName = std::move(Decoded);
 			ESPWS_DEBUGVV("[%s] -> Username = '%s'\n",
 				request._remoteIdent.c_str(), Ret.UserName.c_str());

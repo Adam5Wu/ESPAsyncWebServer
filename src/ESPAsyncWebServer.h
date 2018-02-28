@@ -36,7 +36,7 @@
 #endif
 
 #ifndef ESPWS_DEBUG_LEVEL
-#define ESPWS_DEBUG_LEVEL 1
+#define ESPWS_DEBUG_LEVEL 3
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 1
@@ -135,9 +135,7 @@ class AsyncWebHeader {
 		StringArray values;
 
 		AsyncWebHeader(const String& n, const String& v): name(n) { values.append(v); }
-#ifdef __GXX_EXPERIMENTAL_CXX0X__
 		AsyncWebHeader(String&& n, String&& v): name(std::move(n)) { values.append(std::move(v)); }
-#endif
 };
 
 /*
@@ -150,9 +148,7 @@ class AsyncWebQuery {
 		String value;
 
 		AsyncWebQuery(const String& n, const String& v): name(n), value(v) {}
-#ifdef __GXX_EXPERIMENTAL_CXX0X__
 		AsyncWebQuery(String&& n, String&& v): name(std::move(n)), value(std::move(v)) {}
-#endif
 };
 
 #ifdef HANDLE_REQUEST_CONTENT
@@ -164,9 +160,7 @@ class AsyncWebParam {
 		String value;
 
 		AsyncWebParam(const String& n, const String& v): name(n), value(v) {}
-#ifdef __GXX_EXPERIMENTAL_CXX0X__
 		AsyncWebParam(String&& n, String&& v): name(std::move(n)), value(std::move(v)) {}
-#endif
 };
 #endif
 
@@ -177,9 +171,7 @@ class AsyncWebUpload : public AsyncWebParam {
 		size_t contentLength;
 
 		AsyncWebUpload(const String& n, const String& v): AsyncWebParam(n, v) {}
-#ifdef __GXX_EXPERIMENTAL_CXX0X__
 		AsyncWebUpload(String&& n, String&& v): AsyncWebParam(std::move(n), std::move(v)) {}
-#endif
 };
 #endif
 
@@ -643,9 +635,7 @@ class AsyncWebServer {
 			String NC;
 
 			NONCEREC(String const &nonce, time_t expiry): NONCE(nonce), EXPIRY(expiry) {}
-#ifdef __GXX_EXPERIMENTAL_CXX0X__
 			NONCEREC(String &&nonce, time_t expiry): NONCE(std::move(nonce)), EXPIRY(expiry) {}
-#endif
 		};
 		LinkedList<NONCEREC> _DAuthRecs;
 
@@ -655,9 +645,7 @@ class AsyncWebServer {
 			LinkedList<Identity*> IDENTS;
 
 			HTTPACL(String const &p): PATH(p), METHODS(HTTP_NONE), IDENTS(NULL) {}
-#ifdef __GXX_EXPERIMENTAL_CXX0X__
 			HTTPACL(String &&p): PATH(std::move(p)), METHODS(HTTP_NONE), IDENTS(NULL) {}
-#endif
 		};
 		LinkedList<HTTPACL> _ACLs;
 		void loadACL(Stream &source);
@@ -671,7 +659,7 @@ class AsyncWebServer {
 
 #ifdef HANDLE_AUTHENTICATION
 		void configAuthority(SessionAuthority &Auth, Stream &ACLStream);
-		void configRealm(String const &realm, String const &secret,
+		void configRealm(String const &realm, String const &secret = "",
 			WebAuthTypeComposite authAccept = AUTH_ANY,
 			time_t nonceLife = DEFAULT_NONCE_LIFE);
 #endif
