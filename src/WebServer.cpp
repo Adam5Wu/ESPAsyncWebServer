@@ -33,26 +33,27 @@
 #include "vfatfs_api.h"
 #endif
 
-WebRequestMethodComposite const HTTP_BASIC          = 0b0000000000001111; // GET,PUT,POST,HEAD
-WebRequestMethodComposite const HTTP_BASIC_READ     = 0b0000000000001001; // GET,HEAD
-WebRequestMethodComposite const HTTP_BASIC_WRITE    = HTTP_BASIC&~HTTP_BASIC_READ;
+WebRequestMethodComposite const HTTP_BASIC_READ     = HTTP_GET | HTTP_HEAD;
+WebRequestMethodComposite const HTTP_BASIC_WRITE    = HTTP_PUT | HTTP_POST;
+WebRequestMethodComposite const HTTP_BASIC          = HTTP_BASIC_READ | HTTP_BASIC_WRITE;
 
-WebRequestMethodComposite const HTTP_EXT            = 0b0000000001110000; // DELETE,PATCH,OPTIONS
-WebRequestMethodComposite const HTTP_EXT_READ       = 0b0000000001000000; // OPTIONS
-WebRequestMethodComposite const HTTP_EXT_WRITE      = HTTP_EXT&~HTTP_EXT_READ;
+WebRequestMethodComposite const HTTP_EXT_READ       = HTTP_OPTIONS;
+WebRequestMethodComposite const HTTP_EXT_WRITE      = HTTP_DELETE | HTTP_PATCH;
+WebRequestMethodComposite const HTTP_EXT            = HTTP_EXT_READ | HTTP_EXT_WRITE;
 
-WebRequestMethodComposite const HTTP_STANDARD       = HTTP_BASIC|HTTP_EXT;
-WebRequestMethodComposite const HTTP_STANDARD_READ  = HTTP_BASIC_READ|HTTP_EXT_READ;
-WebRequestMethodComposite const HTTP_STANDARD_WRITE = HTTP_BASIC_WRITE|HTTP_EXT_WRITE;
+WebRequestMethodComposite const HTTP_STANDARD_READ  = HTTP_BASIC_READ | HTTP_EXT_READ;
+WebRequestMethodComposite const HTTP_STANDARD_WRITE = HTTP_BASIC_WRITE | HTTP_EXT_WRITE;
+WebRequestMethodComposite const HTTP_STANDARD       = HTTP_BASIC | HTTP_EXT;
 
 #ifdef HANDLE_WEBDAV
-WebRequestMethodComposite const HTTP_DAVEXT         = 0b0011111110000000;
-WebRequestMethodComposite const HTTP_DAVEXT_READ    = 0b0001000000000000; // PROPFIND
-WebRequestMethodComposite const HTTP_DAVEXT_WRITE   = HTTP_DAVEXT&~HTTP_DAVEXT_READ;
+WebRequestMethodComposite const HTTP_DAVEXT_READ    = HTTP_PROPFIND;
+WebRequestMethodComposite const HTTP_DAVEXT_WRITE   = HTTP_COPY | HTTP_MOVE | HTTP_MKCOL | HTTP_PROPPATCH;
+WebRequestMethodComposite const HTTP_DAVEXT_CONTROL = HTTP_LOCK | HTTP_UNLOCK;
+WebRequestMethodComposite const HTTP_DAVEXT         = HTTP_DAVEXT_READ | HTTP_DAVEXT_WRITE | HTTP_DAVEXT_CONTROL;
 
-WebRequestMethodComposite const HTTP_WEBDAV         = HTTP_STANDARD|HTTP_DAVEXT;
-WebRequestMethodComposite const HTTP_WEBDAV_READ    = HTTP_STANDARD_READ|HTTP_DAVEXT_READ;
-WebRequestMethodComposite const HTTP_WEBDAV_WRITE   = HTTP_STANDARD_WRITE|HTTP_DAVEXT_WRITE;
+WebRequestMethodComposite const HTTP_WEBDAV_READ    = HTTP_STANDARD_READ | HTTP_DAVEXT_READ;
+WebRequestMethodComposite const HTTP_WEBDAV_WRITE   = HTTP_STANDARD_WRITE | HTTP_DAVEXT_WRITE;
+WebRequestMethodComposite const HTTP_WEBDAV         = HTTP_STANDARD | HTTP_DAVEXT;
 
 WebRequestMethodComposite const HTTP_ANY            = HTTP_WEBDAV;
 WebRequestMethodComposite const HTTP_ANY_READ       = HTTP_WEBDAV_READ;
@@ -196,9 +197,9 @@ WebRequestMethodComposite AsyncWebServer::parseMethods(char *Str) {
 				else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_ANY_WRITE;
 #ifdef HANDLE_WEBDAV
 			} else if (Ptr[1] == 'D') {
-				if (!Ptr[2]) Group = HTTP_WEBDAV;
-				else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_WEBDAV_READ;
-				else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_WEBDAV_WRITE;
+				if (!Ptr[2]) Group = HTTP_DAVEXT;
+				else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_DAVEXT_READ;
+				else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_DAVEXT_WRITE;
 #endif
 			}
 			Ret |= Group;
