@@ -36,7 +36,7 @@ ESPWS_DEBUGDO(const char* AsyncRequestHeadParser::_stateToString(void) const {
 bool AsyncRequestHeadParser::_parseLine(void) {
 	switch (__reqState()) {
 		case REQUEST_START:
-			if(!_temp.empty() && _parseReqStart()) {
+			if(_temp && _parseReqStart()) {
 				// Perform rewrite and handler lookup
 				_request._server._rewriteRequest(_request);
 				_request._server._attachHandler(_request);
@@ -49,7 +49,7 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 			break;
 
 		case REQUEST_HEADERS:
-			if(!_temp.empty()) {
+			if(_temp) {
 				// More headers
 				if (!_parseReqHeader()) {
 					if (__reqState() == REQUEST_HEADERS)
@@ -67,7 +67,7 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 			} else {
 #ifdef STRICT_PROTOCOL
 				// According to RFC, HTTP/1.1 requires host header
-				if (_request.version() && _request.host().empty()) {
+				if (_request.version() && !_request.host()) {
 					_request.send(400);
 					__reqState(REQUEST_RESPONSE);
 				} else
@@ -464,7 +464,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 				buf = str+= i;
 				_curOfs+= i;
 
-				if (!_temp.empty()) {
+				if (_temp) {
 					String item = urlDecode(_temp.begin(),_temp.length());
 					switch (_state) {
 						case SF_PARSER_KEY:
@@ -681,7 +681,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 
 		virtual void _parse(void *&buf, size_t &len) override {
 			char *str = (char*)buf;
-			if (!_temp.empty()) {
+			if (_temp) {
 				_temp.concat(str, len);
 				str = _temp.begin();
 				len = _temp.length();
@@ -777,8 +777,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 										__reqState(REQUEST_ERROR);
 										return;
 									} else {
-										ESPWS_DEBUGVV("[%s] Part Start\n",
-											_request._remoteIdent.c_str());
+										ESPWS_DEBUGVV("[%s] Part Start\n", _request._remoteIdent.c_str());
 										_state = MP_PARSER_TERMINATE;
 									}
 								}
@@ -786,19 +785,18 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 								if (_state == MP_PARSER_HEADER) {
 									if (_filepart) {
 										_state = MP_PARSER_CONTENT;
-										if (_filename.empty()) {
+										if (!_filename) {
 											ESPWS_DEBUG("[%s] WARNING: Empty file name\n",
 												_request._remoteIdent.c_str());
 										}
-										if (_contentType.empty()) {
+										if (!_contentType) {
 											ESPWS_DEBUG("[%s] WARNING: No content type specified\n",
 												_request._remoteIdent.c_str());
 											_contentType = "text/plain";
 										}
 									} else _state = MP_PARSER_VALUE;
 								} else {
-									ESPWS_DEBUGVV("[%s] Part End\n",
-										_request._remoteIdent.c_str());
+									ESPWS_DEBUGVV("[%s] Part End\n", _request._remoteIdent.c_str());
 									_state = MP_PARSER_HEADER;
 								}
 							}

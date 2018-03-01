@@ -85,7 +85,7 @@ AsyncStaticWebHandler::AsyncStaticWebHandler(const String& path, Dir const& dir,
 }
 
 AsyncStaticWebHandler& AsyncStaticWebHandler::setCacheControl(const char* cache_control){
-	_cache_control = String(cache_control);
+	_cache_control = cache_control;
 	return *this;
 }
 
@@ -109,7 +109,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 	String subpath = request.url().substring(path.length());
 
 	bool ServeDir = false;
-	if (subpath.empty()) {
+	if (!subpath) {
 		// Requesting root dir
 		ESPWS_DEBUGVV("[%s] RootDir\n", request._remoteIdent.c_str());
 		ServeDir = true;
@@ -133,7 +133,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 			_onIndex(request);
 			return;
 		} else {
-			if (!_indexFile.empty()) {
+			if (_indexFile) {
 				// Need to look up index file
 				subpath+= _indexFile;
 			} else {
@@ -153,7 +153,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 	}
 
 	// Handle file request path
-	if (!subpath.empty()) {
+	if (subpath) {
 		ESPWS_DEBUGVV("[%s] File lookup: '%s'\n",
 			request._remoteIdent.c_str(), subpath.c_str());
 		if (gzEncode) {
@@ -201,7 +201,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 
 	// We can serve a data file
 	String etag;
-	if (!_cache_control.empty()){
+	if (_cache_control){
 		time_t fm = CWF.mtime();
 		size_t fs = CWF.size();
 		etag = "W/\""+String(fs)+'@'+String(fm,16)+'"';
@@ -214,7 +214,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 
 	ESPWS_DEBUGVV("[%s] Serving '%s'\n", request._remoteIdent.c_str(), CWF.name());
 	AsyncWebResponse * response = new AsyncFileResponse(CWF, subpath);
-	if (!_cache_control.empty()) {
+	if (_cache_control) {
 		response->addHeader("Cache-Control", _cache_control.c_str());
 		response->addHeader("ETag", etag.c_str());
 	}
@@ -226,7 +226,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 
 void AsyncStaticWebHandler::_sendDirList(AsyncWebRequest &request) {
 	String subpath = request.url().substring(path.length());
-	Dir CWD = subpath.empty()? _dir : _dir.openDir(subpath.c_str());
+	Dir CWD = subpath? _dir.openDir(subpath.c_str()) : _dir;
 	if (!CWD) {
 		request.send(500);
 		return;
@@ -246,14 +246,14 @@ void AsyncStaticWebHandler::_sendDirList(AsyncWebRequest &request) {
 	OvfBuf.concat("'</h1><hr><table><thead>"
 		"<tr><th>Name</th><th>Size (bytes)</th><th>Modification Time</th></tr>"
 		"</thead><tbody>");
-	if (!subpath.empty())
+	if (subpath)
 		OvfBuf.concat("<tr><td><a href='..'>(Parent directory)</a></td><td></td><td></td></tr>");
 	CWD.next(true);
 
 	request.sendChunked(200,
 		[=,&request](uint8_t* buf, size_t len, size_t offset) mutable -> size_t {
 			size_t outLen = 0;
-			if (!OvfBuf.empty()) {
+			if (OvfBuf) {
 				outLen = OvfBuf.length() < len? OvfBuf.length(): len;
 				memcpy(buf,OvfBuf.begin(),outLen);
 				if (outLen >= OvfBuf.length()) OvfBuf.clear();

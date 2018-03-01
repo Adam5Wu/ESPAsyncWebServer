@@ -22,23 +22,10 @@
 #include <libb64/cencode.h>
 #include "AsyncWebSocket.h"
 
-#ifndef ESP8266
-extern "C" {
-typedef struct {
-    uint32_t state[5];
-    uint32_t count[2];
-    unsigned char buffer[64];
-} SHA1_CTX;
-
-void SHA1Transform(uint32_t state[5], const unsigned char buffer[64]);
-void SHA1Init(SHA1_CTX* context);
-void SHA1Update(SHA1_CTX* context, const unsigned char* data, uint32_t len);
-void SHA1Final(unsigned char digest[20], SHA1_CTX* context);
-}
-#else
 #include <Hash.h>
-#endif
-
+extern "C" {
+#include <sha1/sha1.h>
+}
 
 size_t webSocketSendFrameWindow(AsyncClient &client){
   if(!client.canSend())
@@ -812,14 +799,14 @@ void AsyncWebSocket::binaryAll(const __FlashStringHelper *message, size_t len){
   }
  }
 
-const char * WS_STR_CONNECTION = "Connection";
-const char * WS_STR_UPGRADE = "Upgrade";
-const char * WS_STR_ORIGIN = "Origin";
-const char * WS_STR_VERSION = "Sec-WebSocket-Version";
-const char * WS_STR_KEY = "Sec-WebSocket-Key";
-const char * WS_STR_PROTOCOL = "Sec-WebSocket-Protocol";
-const char * WS_STR_ACCEPT = "Sec-WebSocket-Accept";
-const char * WS_STR_UUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const char WS_STR_CONNECTION[] = "Connection";
+const char WS_STR_UPGRADE[] = "Upgrade";
+const char WS_STR_ORIGIN[] = "Origin";
+const char WS_STR_VERSION[] = "Sec-WebSocket-Version";
+const char WS_STR_KEY[] = "Sec-WebSocket-Key";
+const char WS_STR_PROTOCOL[] = "Sec-WebSocket-Protocol";
+const char WS_STR_ACCEPT[] = "Sec-WebSocket-Accept";
+const char WS_STR_UUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 bool AsyncWebSocket::_canHandle(AsyncWebRequest const &request) {
   if(!_enabled)
@@ -874,15 +861,11 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String& key, AsyncWebSocket
 {
   uint8_t hash[20];
   char buffer[33];
-#ifdef ESP8266
-  sha1(key + WS_STR_UUID, hash);
-#else
-  key += WS_STR_UUID;
   SHA1_CTX ctx;
   SHA1Init(&ctx);
-  SHA1Update(&ctx, (const unsigned char*)key.c_str(), key.length());
+  SHA1Update(&ctx, (uint8_t*)key.c_str(), key.length());
+  SHA1Update(&ctx, (uint8_t*)WS_STR_UUID, sizeof(WS_STR_UUID));
   SHA1Final(hash, &ctx);
-#endif
   base64_encodestate _state;
   base64_init_encodestate(&_state);
   int len = base64_encode_block((const char *) hash, 20, buffer, &_state);

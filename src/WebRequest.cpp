@@ -494,8 +494,8 @@ void AsyncWebRequest::send(AsyncWebResponse *response) {
 
 AsyncWebResponse * AsyncWebRequest::beginResponse(int code, const String& content,
 	const String& contentType){
-	return content.empty()? (AsyncWebResponse*) new AsyncSimpleResponse(code)
-		: new AsyncStringResponse(code, content, contentType);
+	return content ? (AsyncWebResponse*) new AsyncStringResponse(code, content, contentType)
+		: new AsyncSimpleResponse(code);
 }
 
 AsyncWebResponse * AsyncWebRequest::beginResponse(FS &fs, const String& path,

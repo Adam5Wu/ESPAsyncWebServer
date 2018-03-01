@@ -33,7 +33,7 @@ class AsyncPathURIWebHandler: public AsyncWebHandler {
 		// but seems to work OK with most browsers
 		void _redirectDir(AsyncWebRequest &request) {
 			String newLocation = request.oUrl()+'/';
-			if (!request.oQuery().empty())
+			if (request.oQuery())
 				newLocation.concat(request.oQuery());
 			request.redirect(newLocation);
 		}
@@ -43,7 +43,7 @@ class AsyncPathURIWebHandler: public AsyncWebHandler {
 		WebRequestMethodComposite const method;
 
 		AsyncPathURIWebHandler(const String& p, WebRequestMethodComposite m)
-		: path((p[0]=='/'? "":"/")+p+(p.end()[-1]=='/'? "":"/")), method(m) {}
+		: path((p[0]=='/'? String::EMPTY : "/")+p+(p.end()[-1]=='/'? String::EMPTY : "/")), method(m) {}
 
 		virtual bool _canHandle(AsyncWebRequest const &request) override;
 		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;

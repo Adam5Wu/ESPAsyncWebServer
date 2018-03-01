@@ -91,7 +91,7 @@ class AnonymousAccountAuthority : public DummyIdentityProvider, public BasicAuth
 } ANONYMOUS_AUTH;
 
 static SessionAuthority ANONYMOUS_SESSIONS(&ANONYMOUS_AUTH, &ANONYMOUS_AUTH);
-static String const OPENACL("/:*-R:Anonymous");
+static String const OPENACL("/:$BR:Anonymous");
 #endif
 
 AsyncWebServer::AsyncWebServer(uint16_t port)
@@ -128,7 +128,7 @@ void AsyncWebServer::configAuthority(SessionAuthority &Auth, Stream &ACLStream) 
 void AsyncWebServer::configRealm(String const &realm, String const &secret,
 	WebAuthTypeComposite authAccept, time_t nonceLife) {
 	_Realm = realm;
-	if (!secret.empty()) _Secret = secret;
+	if (secret) _Secret = secret;
 	_AuthAcc = authAccept;
 	_NonceLife = nonceLife;
 }
@@ -177,32 +177,33 @@ WebRequestMethodComposite AsyncWebServer::parseMethods(char *Str) {
 		if (*Str) *Str++ = '\0';
 		else Str = NULL;
 
-		WebRequestMethodComposite Group = 0;
-		if (Ptr[0] == '*') {
+		if (Ptr[0] == '$') {
+			WebRequestMethodComposite Group = 0;
 			if (!Ptr[1]) {
 				// Short-hand for standard methods
 				Group = HTTP_STANDARD;
-			} else if (Ptr[1] == '-') {
+			} else if (Ptr[1] == 'B') {
 				if (!Ptr[2]) Group = HTTP_BASIC;
 				else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_BASIC_READ;
 				else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_BASIC_WRITE;
-			} else if (Ptr[1] == '+') {
+			} else if (Ptr[1] == 'S') {
 				if (!Ptr[2]) Group = HTTP_STANDARD;
 				else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_STANDARD_READ;
 				else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_STANDARD_WRITE;
-			} else if (Ptr[1] == '*') {
+			} else if (Ptr[1] == 'A') {
 				if (!Ptr[2]) Group = HTTP_ANY;
 				else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_ANY_READ;
 				else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_ANY_WRITE;
 #ifdef HANDLE_WEBDAV
-			} else if (Ptr[1] == '@') {
+			} else if (Ptr[1] == 'D') {
 				if (!Ptr[2]) Group = HTTP_WEBDAV;
 				else if (Ptr[2] == 'R' && !Ptr[3]) Group = HTTP_WEBDAV_READ;
 				else if (Ptr[2] == 'W' && !Ptr[3]) Group = HTTP_WEBDAV_WRITE;
 #endif
 			}
-		}
-		Ret |= Group? Group : parseMethod(Ptr);
+			Ret |= Group;
+		} else
+			Ret |= parseMethod(Ptr);
 	}
 	return Ret;
 }
@@ -236,7 +237,7 @@ String AsyncWebServer::mapMethods(WebRequestMethodComposite methods) {
 	WebRequestMethod pivot = (WebRequestMethod)1;
 	while (methods) {
 		if (methods && pivot) {
-			if (!Ret.empty()) Ret.concat(',');
+			if (Ret) Ret.concat(',');
 			Ret.concat(mapMethod(pivot));
 			methods&= ~pivot;
 		}
@@ -251,7 +252,7 @@ void AsyncWebServer::loadACL(Stream &source) {
 	while (source.available()) {
 		String Line = source.readStringUntil('\n');
 		Line.trim();
-		if (Line.empty()) continue;
+		if (!Line) continue;
 
 		char const* Ptr = Line.begin();
 		if (Ptr[0] == ':') {
@@ -432,7 +433,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 	}));
 
 	AsyncWebAuth Ret(AUTHHEADER_ANONYMOUS, AUTH_NONE);
-	while (!authHeader.empty()) {
+	while (authHeader) {
 		Ret.State = AUTHHEADER_MALFORMED;
 		int indexAttr = authHeader.indexOf(' ');
 		if (indexAttr <= 0) {

@@ -29,7 +29,7 @@ extern "C" {
 static String _PlatformAnnotation;
 
 String const& GetPlatformAnnotation(void) {
-	if (_PlatformAnnotation.empty()) {
+	if (!_PlatformAnnotation) {
 #if defined(ESP8266)
 		_PlatformAnnotation.concat("ESP8266 NonOS-", 14);
 		_PlatformAnnotation.concat(system_get_sdk_version());
@@ -312,7 +312,7 @@ void AsyncBasicResponse::_assembleHead(void) {
 		if (_request->version())
 			addHeader("Accept-Ranges", "none");
 	}
-	if (!_contentType.empty()) {
+	if (_contentType) {
 		addHeader("Content-Type", _contentType.c_str());
 		_contentType.clear(true);
 	} else if (_contentLength && _contentLength != -1) {
@@ -348,7 +348,7 @@ AsyncStringRefResponse::AsyncStringRefResponse(int code, const String& content,
 	: AsyncBasicResponse(code, contentType)
 	, _content(content)
 {
-	if (_contentType.empty())
+	if (!_contentType)
 		_contentType = "text/plain";
 }
 
@@ -438,7 +438,7 @@ AsyncFileResponse::AsyncFileResponse(File const& content, const String& path,
 	if (_content) {
 		_contentLength = _content.size();
 
-		if (contentType.empty()) {
+		if (!contentType) {
 			int extensionStart = path.lastIndexOf('.')+1;
 			String extension = path.begin() + extensionStart;
 

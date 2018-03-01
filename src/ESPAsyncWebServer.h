@@ -36,7 +36,7 @@
 #endif
 
 #ifndef ESPWS_DEBUG_LEVEL
-#define ESPWS_DEBUG_LEVEL 3
+#define ESPWS_DEBUG_LEVEL ESPZW_DEBUG_LEVEL
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 1
@@ -71,7 +71,7 @@
 
 #define HANDLE_AUTHENTICATION
 
-//#define HANDLE_WEBDAV
+#define HANDLE_WEBDAV
 
 #define REQUEST_PARAM_MEMCACHE    1024
 #define REQUEST_PARAM_KEYMAX      128
@@ -659,7 +659,7 @@ class AsyncWebServer {
 
 #ifdef HANDLE_AUTHENTICATION
 		void configAuthority(SessionAuthority &Auth, Stream &ACLStream);
-		void configRealm(String const &realm, String const &secret = "",
+		void configRealm(String const &realm, String const &secret = String::EMPTY,
 			WebAuthTypeComposite authAccept = AUTH_ANY,
 			time_t nonceLife = DEFAULT_NONCE_LIFE);
 #endif

@@ -41,7 +41,7 @@ class AsyncWebParser {
 		void __setVersion(uint8_t newVersion) { _request._version = newVersion; }
 		void __setUrl(char const *newUrl) { _request._setUrl(newUrl); }
 		void __setHost(String &newHost) {
-			if (!newHost.empty()) _request._host = std::move(newHost);
+			if (newHost) _request._host = std::move(newHost);
 			else { _request._host.reserve(0); _request._host.clear(); }
 		}
 		void __setKeepAlive(bool state) { _request._keepAlive = state; }
