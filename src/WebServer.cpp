@@ -94,8 +94,14 @@ class AnonymousAccountAuthority : public DummyIdentityProvider, public BasicAuth
 static SessionAuthority ANONYMOUS_SESSIONS(&ANONYMOUS_AUTH, &ANONYMOUS_AUTH);
 #endif
 
+class AsyncCatchAllCallbackWebHandler : public AsyncCallbackWebHandler {
+	public:
+		virtual bool _isInterestingHeader(String const& key) override { return true; }
+};
+
 AsyncWebServer::AsyncWebServer(uint16_t port)
 	: _server(port)
+	, _catchAllHandler(new AsyncCatchAllCallbackWebHandler)
 	, _rewrites(LinkedList<AsyncWebRewrite*>([](AsyncWebRewrite* r){ delete r; }))
 	, _handlers(LinkedList<AsyncWebHandler*>([](AsyncWebHandler* h){ delete h; }))
 #ifdef HANDLE_AUTHENTICATION
@@ -118,6 +124,10 @@ AsyncWebServer::AsyncWebServer(uint16_t port)
 	ACL.IDENTS.append(&IdentityProvider::ANONYMOUS);
 	_ACLs.append(std::move(ACL));
 #endif
+}
+
+AsyncWebServer::~AsyncWebServer(void) {
+	delete _catchAllHandler;
 }
 
 #ifdef HANDLE_AUTHENTICATION
@@ -332,12 +342,16 @@ void AsyncWebServer::beginSecure(const char *cert, const char *private_key_file,
 	}, this);
 	_server.beginSecure(cert, private_key_file, password);
 #endif
+#if ASYNC_TCP_SSL_BEARSSL
+	// Not implemented!
+	panic();
+#endif
 }
 #endif
 
 AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method,
 	ArRequestHandlerFunction const& onRequest){
-	AsyncCallbackWebHandler* handler = new AsyncCallbackWebHandler(uri, method);
+	AsyncCallbackWebHandler* handler = new AsyncPathURICallbackWebHandler(uri, method);
 	handler->onRequest = onRequest;
 	return addHandler(handler), *handler;
 }
@@ -382,7 +396,43 @@ void AsyncWebServer::_attachHandler(AsyncWebRequest &request) const {
 		return h->_filter(request) && h->_canHandle(request);
 	});
 	if (handler) request._handler = *handler;
-	else request._handler = (AsyncWebHandler*)&_catchAllHandler;
+	else request._handler = _catchAllHandler;
+}
+
+void AsyncWebServer::catchAll(ArRequestHandlerFunction const& onRequest)
+{ _catchAllHandler->onRequest = onRequest; }
+
+#ifdef HANDLE_REQUEST_CONTENT
+void AsyncWebServer::catchAll(ArBodyHandlerFunction const& onBody)
+{ _catchAllHandler->onBody = onBody; }
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+void AsyncWebServer::catchAll(ArParamDataHandlerFunction const& onParamData)
+{ _catchAllHandler->onParamData = onParamData; }
+#endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+void AsyncWebServer::catchAll(ArUploadDataHandlerFunction const& onUploadData)
+{ _catchAllHandler->onUploadData = onUploadData; }
+#endif
+
+#endif
+
+void AsyncWebServer::reset(void) {
+	//remove all writers and handlers, including catch-all handlers
+	_catchAllHandler->onRequest = NULL;
+#ifdef HANDLE_REQUEST_CONTENT
+	_catchAllHandler->onBody = NULL;
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+	_catchAllHandler->onParamData = NULL;
+#endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+	_catchAllHandler->onUploadData = NULL;
+#endif
+
+#endif
 }
 
 #ifdef HANDLE_AUTHENTICATION

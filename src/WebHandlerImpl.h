@@ -81,7 +81,7 @@ class AsyncHostRedirWebHandler: public AsyncWebHandler {
 #endif
 };
 
-class AsyncPathURIWebHandler: public AsyncWebHandler {
+class AsyncPathURIWebHandler: virtual public AsyncWebHandler {
 	protected:
 		// May not be compliant with standard (no protocol and server),
 		// but seems to work OK with most browsers
@@ -162,55 +162,59 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 #endif
 };
 
-class AsyncCallbackWebHandler: public AsyncPathURIWebHandler {
+class AsyncCallbackWebHandler : virtual public AsyncWebHandler {
 	public:
-		StringArray interestedHeaders;
 		ArRequestHandlerFunction onRequest;
 #ifdef HANDLE_REQUEST_CONTENT
 		ArBodyHandlerFunction onBody;
-
+		
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 		ArParamDataHandlerFunction onParamData;
 #endif
-
+	
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 		ArUploadDataHandlerFunction onUploadData;
 #endif
-
+		
 #endif
-
-		AsyncCallbackWebHandler(String const &path, WebRequestMethodComposite method = HTTP_ANY)
-			: AsyncPathURIWebHandler(path, method) {}
-
-		virtual bool _isInterestingHeader(String const& key) override
-		{ return interestedHeaders.containsIgnoreCase(key); }
-
+	
 		virtual void _handleRequest(AsyncWebRequest &request) override {
 			if (onRequest) onRequest(request);
 			else request.send(500);
 		}
-
+	
 #ifdef HANDLE_REQUEST_CONTENT
 		virtual bool _handleBody(AsyncWebRequest &request,
 			size_t offset, void *buf, size_t size) override
-		{ return onBody? onBody(request, offset, buf, size) : false; }
-
+		{ return onBody? onBody(request, offset, buf, size) : true; }
+		
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 		virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
 			size_t offset, void *buf, size_t size) override
-		{ return onParamData? onParamData(request, name, offset, buf, size) : false; }
+		{ return onParamData? onParamData(request, name, offset, buf, size) : true; }
 #endif
-
+	
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 		virtual bool _handleUploadData(AsyncWebRequest &request, String const& name,
 			String const& filename, String const& contentType,
 			size_t offset, void *buf, size_t size) override {
 			return onUploadData? onUploadData(request, name, filename, contentType,
-				offset, buf, size) : false;
+			offset, buf, size) : true;
 		}
+	#endif
+		
 #endif
+};
+	
+class AsyncPathURICallbackWebHandler: public AsyncPathURIWebHandler, public AsyncCallbackWebHandler {
+	public:
+		StringArray interestedHeaders;
 
-#endif
+		AsyncPathURICallbackWebHandler(String const &path, WebRequestMethodComposite method = HTTP_ANY)
+			: AsyncPathURIWebHandler(path, method) {}
+
+		virtual bool _isInterestingHeader(String const& key) override
+		{ return interestedHeaders.containsIgnoreCase(key); }
 };
 
 #endif /* AsynWebHandlerImpl_H_ */

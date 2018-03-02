@@ -598,48 +598,7 @@ class AsyncWebServer {
 				{ __setUrl(request, to); }
 		};
 
-		class AsyncWebCatchAllHandler : public AsyncWebHandler {
-			public:
-				ArRequestHandlerFunction onRequest;
-#ifdef HANDLE_REQUEST_CONTENT
-				ArBodyHandlerFunction onBody;
-
-#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-				ArParamDataHandlerFunction onParamData;
-#endif
-
-#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-				ArUploadDataHandlerFunction onUploadData;
-#endif
-
-#endif
-
-				virtual bool _isInterestingHeader(String const& key) override { return true; }
-				virtual void _handleRequest(AsyncWebRequest &request) override
-				{ if (onRequest) onRequest(request); else request.send(500); }
-
-#ifdef HANDLE_REQUEST_CONTENT
-				virtual bool _handleBody(AsyncWebRequest &request,
-					size_t offset, void *buf, size_t size) override
-				{ return onBody? onBody(request, offset, buf, size) : true; }
-
-#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-				virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
-					size_t offset, void *buf, size_t size) override
-				{ return onParamData? onParamData(request, name, offset, buf, size) : true; }
-#endif
-
-#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-				virtual bool _handleUploadData(AsyncWebRequest &request, String const& name,
-					String const& filename, String const& contentType,
-					size_t offset, void *buf, size_t size) override {
-					return onUploadData? onUploadData(request, name, filename, contentType,
-						offset, buf, size) : true;
-				}
-#endif
-
-#endif
-		} _catchAllHandler;
+		AsyncCallbackWebHandler *_catchAllHandler;
 
 #if ASYNC_TCP_SSL_ENABLED
 		int _loadSSLCert(const char *filename, uint8_t **buf);
@@ -681,7 +640,7 @@ class AsyncWebServer {
 		static char const *VERTOKEN;
 
 		AsyncWebServer(uint16_t port);
-		~AsyncWebServer(void) {}
+		~AsyncWebServer(void);
 
 #ifdef HANDLE_AUTHENTICATION
 		void configAuthority(SessionAuthority &Auth, Stream &ACLStream);
@@ -743,41 +702,22 @@ class AsyncWebServer {
 			const char* cache_control = DEFAULT_CACHE_CTRL);
 
 		// Called when handler is not assigned
-		void catchAll(ArRequestHandlerFunction const& onRequest)
-		{ _catchAllHandler.onRequest = onRequest; }
+		void catchAll(ArRequestHandlerFunction const& onRequest);
 
 #ifdef HANDLE_REQUEST_CONTENT
-		void catchAll(ArBodyHandlerFunction const& onBody)
-		{ _catchAllHandler.onBody = onBody; }
+		void catchAll(ArBodyHandlerFunction const& onBody);
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-		void catchAll(ArParamDataHandlerFunction const& onParamData)
-		{ _catchAllHandler.onParamData = onParamData; }
+		void catchAll(ArParamDataHandlerFunction const& onParamData);
 #endif
 
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-		void catchAll(ArUploadDataHandlerFunction const& onUploadData)
-		{ _catchAllHandler.onUploadData = onUploadData; }
+		void catchAll(ArUploadDataHandlerFunction const& onUploadData);
 #endif
 
 #endif
 
-		void reset() {
-			//remove all writers and handlers, including catch-all handlers
-			_catchAllHandler.onRequest = NULL;
-#ifdef HANDLE_REQUEST_CONTENT
-			_catchAllHandler.onBody = NULL;
-
-#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-			_catchAllHandler.onParamData = NULL;
-#endif
-
-#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-			_catchAllHandler.onUploadData = NULL;
-#endif
-
-#endif
-		}
+		void reset(void);
 
 		void _rewriteRequest(AsyncWebRequest &request) const;
 		void _attachHandler(AsyncWebRequest &request) const;
