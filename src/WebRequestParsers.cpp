@@ -37,9 +37,10 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 	switch (__reqState()) {
 		case REQUEST_START:
 			if(_temp && _parseReqStart()) {
-				// Perform rewrite and handler lookup
+				// Perform request rewrite now
 				_request._server._rewriteRequest(_request);
-				_request._server._attachHandler(_request);
+				// Defer handler lookup until host is known
+				//_request._server._attachHandler(_request);
 
 				__reqState(REQUEST_HEADERS);
 			} else {
@@ -59,6 +60,13 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 				break;
 			}
 
+			// If any non-standard header has been encountered,
+			//   a handler should have been already attached;
+			// Otherwise, we attach handler now
+			if (!_handlerAttached) {
+				_handlerAttached = true;
+				_request._server._attachHandler(_request);
+			}
 			// End of headers
 			if(!__reqHandler()) {
 				// No handler available
@@ -110,10 +118,10 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 							}
 							ESPWS_DEBUGVVDO({
 								if (newParser) {
-									ESPWS_DEBUG("[%s] Using registered body parser\n",
+									ESPWS_LOG("[%s] Using registered body parser\n",
 										_request._remoteIdent.c_str());
 								} else {
-									ESPWS_DEBUG("[%s] Using generic body parser\n",
+									ESPWS_LOG("[%s] Using generic body parser\n",
 										_request._remoteIdent.c_str());
 								}
 							});
@@ -180,6 +188,14 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 		__setHost(value);
 		ESPWS_DEBUGV("[%s] + Host: '%s'\n",
 			_request._remoteIdent.c_str(), _request.host().c_str());
+	} else if (_temp.equalsIgnoreCase("User-Agent")) {
+		__setUserAgent(value);
+		ESPWS_DEBUGV("[%s] + User-Agent: '%s'\n",
+			_request._remoteIdent.c_str(), _request.userAgent().c_str());
+	} else if (_temp.equalsIgnoreCase("Accept")) {
+		__setAccept(value);
+		ESPWS_DEBUGV("[%s] + Accept: '%s'\n",
+			_request._remoteIdent.c_str(), _request.accept().c_str());
 	} else if (_temp.equalsIgnoreCase("Connection")) {
 		ESPWS_DEBUGV("[%s] + Connection: '%s'\n",
 			_request._remoteIdent.c_str(), value.c_str());
@@ -229,6 +245,10 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 			_request._remoteIdent.c_str(), _authorization.c_str());
 #endif
 	} else {
+		if (!_handlerAttached) {
+			_handlerAttached = true;
+			_request._server._attachHandler(_request);
+		}
 		if (__reqHandler() && __reqHandler()->_isInterestingHeader(_temp)) {
 			ESPWS_DEBUGV("[%s] ! %s: '%s'\n",
 				_request._remoteIdent.c_str(), _temp.begin(), value.begin());
@@ -343,7 +363,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 
 		bool _checkReachEnd(std::function<void(void)> callback) {
 			if (_curOfs >= _request.contentLength()) {
-				ESPWS_DEBUG("[%s] Finished body parsing\n", _request._remoteIdent.c_str());
+				ESPWS_DEBUG_S(L,"[%s] Finished body parsing\n", _request._remoteIdent.c_str());
 				if (callback) callback();
 				if (__reqState() == REQUEST_BODY) {
 					__reqState(REQUEST_RECEIVED);
@@ -368,13 +388,13 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 			if (_state == SF_PARSER_VALUE) {
 				bool HandlerCallback = _flush || _memCacheFull();
 				if (HandlerCallback) {
-					ESPWS_DEBUGVV("[%s] * [%s]@%0.4X = '%s'\n",
+					ESPWS_DEBUGVV_S(L,"[%s] * [%s]@%0.4X = '%s'\n",
 						_request._remoteIdent.c_str(), _key.c_str(), _valOfs, value.c_str());
 					__reqHandler()->_handleParamData(_request, _key, _valOfs,
 						value.begin(), value.length());
 					_valOfs+= value.length();
 				} else {
-					ESPWS_DEBUGVV("[%s] + [%s] = '%s'\n",
+					ESPWS_DEBUGVV_S(L,"[%s] + [%s] = '%s'\n",
 						_request._remoteIdent.c_str(), _key.c_str(), value.c_str());
 					_memCached+= _key.length();
 					_memCached+= value.length();
@@ -383,7 +403,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 				return true;
 			}
 
-			ESPWS_DEBUG("[%s] Invalid request parameter state '%s'\n",
+			ESPWS_DEBUG_S(L,"[%s] Invalid request parameter state '%s'\n",
 				_request._remoteIdent.c_str(), _stateToString());
 			__reqState(REQUEST_ERROR);
 			return false;
@@ -436,7 +456,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 
 						// Guard maximum token length
 						if (_temp.length()+i > limit) {
-							ESPWS_DEBUG("[%s] Request parameter token exceeds length limit!\n",
+							ESPWS_DEBUG_S(L,"[%s] Request parameter token exceeds length limit!\n",
 								_request._remoteIdent.c_str());
 							__reqState(REQUEST_ERROR);
 							return;
@@ -513,7 +533,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 
 		bool _checkReachEnd(std::function<void(void)> callback) {
 			if (_curOfs >= _request.contentLength()) {
-				ESPWS_DEBUGVV("[%s] Finished body parsing\n", _request._remoteIdent.c_str());
+				ESPWS_DEBUGVV_S(L,"[%s] Finished body parsing\n", _request._remoteIdent.c_str());
 				if (callback) callback();
 				if (__reqState() == REQUEST_BODY) {
 					__reqState(REQUEST_RECEIVED);
@@ -523,7 +543,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 				}
 				return true;
 			}
-			ESPWS_DEBUGVV("[%s] Body parsed %d/%d\n",
+			ESPWS_DEBUGVV_S(L,"[%s] Body parsed %d/%d\n",
 				_request._remoteIdent.c_str(), _curOfs, _request.contentLength());
 			return false;
 		}
@@ -544,13 +564,13 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 			if (_state == MP_PARSER_VALUE) {
 				bool HandlerCallback = _flush || _memCacheFull();
 				if (HandlerCallback) {
-					ESPWS_DEBUGVV("[%s] * [%s]@%0.4X = '%s'\n",
+					ESPWS_DEBUGVV_S(L,"[%s] * [%s]@%0.4X = '%s'\n",
 						_request._remoteIdent.c_str(), _key.c_str(), _valOfs, value.c_str());
 					__reqHandler()->_handleParamData(_request, _key, _valOfs,
 						value.begin(), value.length());
 					_valOfs+= value.length();
 				} else {
-					ESPWS_DEBUGVV("[%s] + [%s] = '%s'\n",
+					ESPWS_DEBUGVV_S(L,"[%s] + [%s] = '%s'\n",
 						_request._remoteIdent.c_str(), _key.c_str(), value.c_str());
 					_memCached+= _key.length();
 					_memCached+= value.length();
@@ -559,7 +579,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 				return true;
 			}
 
-			ESPWS_DEBUG("[%s] Invalid request parameter state '%s'\n",
+			ESPWS_DEBUG_S(L,"[%s] Invalid request parameter state '%s'\n",
 				_request._remoteIdent.c_str(), _stateToString());
 			return false;
 		}
@@ -570,21 +590,21 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 			_curOfs(0), _valOfs(0), _parseOfs(0), _memCached(0) {
 			int indexBoundary = _request.contentType().indexOf("boundary=", 20);
 			if (indexBoundary < 0) {
-				ESPWS_DEBUG("[%s] Missing boundary specification\n",
+				ESPWS_DEBUG_S(L,"[%s] Missing boundary specification\n",
 					_request._remoteIdent.c_str());
 				__reqState(REQUEST_ERROR);
 				return;
 			}
 			const char* valStart = &_request.contentType().begin()[indexBoundary+9];
 			_boundary = getQuotedToken(valStart);
-			ESPWS_DEBUGVV("[%s] Part boundary: '%s'\n",
+			ESPWS_DEBUGVV_S(L,"[%s] Part boundary: '%s'\n",
 				_request._remoteIdent.c_str(), _boundary.c_str());
 			_boundaryLen = _boundary.length();
 			__setContentType(String(_request.contentType().begin(),19));
 		}
 
 		bool _handleHeader(String &line) {
-			ESPWS_DEBUGVV("[%s] # %s\n", _request._remoteIdent.c_str(), line.c_str());
+			ESPWS_DEBUGVV_S(L,"[%s] # %s\n", _request._remoteIdent.c_str(), line.c_str());
 
 			// Split the header into key and value
 			int keyEnd = line.indexOf(':');
@@ -596,7 +616,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 
 			if (line.equalsIgnoreCase("Content-Disposition")) {
 				if (!value.startsWith("form-data;", 10, 0, true)) {
-					ESPWS_DEBUG("[%s] Unrecognised disposition type '%s'\n",
+					ESPWS_DEBUG_S(L,"[%s] Unrecognised disposition type '%s'\n",
 						_request._remoteIdent.c_str(), value.c_str());
 					return false;
 				}
@@ -609,18 +629,18 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 					_filepart = true;
 					valStart = &value[indexFName+9];
 					_filename = getQuotedToken(valStart);
-					ESPWS_DEBUGV("[%s] * Part [%s], file '%s'\n",
+					ESPWS_DEBUGV_S(L,"[%s] * Part [%s], file '%s'\n",
 						_request._remoteIdent.c_str(), _key.c_str(), _filename.c_str());
 				} else {
-					ESPWS_DEBUGV("[%s] * Part [%s]\n",
+					ESPWS_DEBUGV_S(L,"[%s] * Part [%s]\n",
 						_request._remoteIdent.c_str(), _key.c_str());
 				}
 			} else if (line.equalsIgnoreCase("Content-Type")) {
 				_contentType = std::move(value);
-				ESPWS_DEBUGV("[%s] * Content-Type: '%s'\n",
+				ESPWS_DEBUGV_S(L,"[%s] * Content-Type: '%s'\n",
 					_request._remoteIdent.c_str(), _contentType.c_str());
 			} else {
-				ESPWS_DEBUG("[%s] Unexpected part header '%s'\n",
+				ESPWS_DEBUG_S(L,"[%s] Unexpected part header '%s'\n",
 					_request._remoteIdent.c_str(), line.c_str());
 				return false;
 			}
@@ -631,7 +651,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 			switch (_state) {
 				case MP_PARSER_STARTUP:
 					if (len) {
-						ESPWS_DEBUG("[%s] WARNING: Ignoring startup data (%d bytes)\n",
+						ESPWS_DEBUG_S(L,"[%s] WARNING: Ignoring startup data (%d bytes)\n",
 							_request._remoteIdent.c_str(), len);
 					}
 					return true;
@@ -647,7 +667,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 					} break;
 
 				default:
-					ESPWS_DEBUG("[%s] WARNING: Unrecognised parameter state '%s'\n",
+					ESPWS_DEBUG_S(L,"[%s] WARNING: Unrecognised parameter state '%s'\n",
 						_request._remoteIdent.c_str(), _stateToString());
 			}
 			return false;
@@ -657,7 +677,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 			switch (_state) {
 				case MP_PARSER_STARTUP:
 					if (len) {
-						ESPWS_DEBUG("[%s] WARNING: Ignoring startup data (%d bytes)\n",
+						ESPWS_DEBUG_S(L,"[%s] WARNING: Ignoring startup data (%d bytes)\n",
 							_request._remoteIdent.c_str(), len);
 					}
 					return true;
@@ -673,7 +693,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 				}
 
 				default:
-					ESPWS_DEBUG("[%s] WARNING: Unrecognised parameter state '%s'\n",
+					ESPWS_DEBUG_S(L,"[%s] WARNING: Unrecognised parameter state '%s'\n",
 						_request._remoteIdent.c_str(), _stateToString());
 			}
 			return false;
@@ -717,7 +737,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 							}
 						}
 						if (partBoundary) {
-							ESPWS_DEBUGVV("[%s] Boundary detected @%d\n",
+							ESPWS_DEBUGVV_S(L,"[%s] Boundary detected @%d\n",
 								_request._remoteIdent.c_str(), i);
 							if (!_handlePartBoundary(str,i-1)) {
 								__reqState(REQUEST_ERROR);
@@ -772,12 +792,12 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 									}
 								} else {
 									if (!line.equals("--")) {
-										ESPWS_DEBUG("[%s] Unrecognised part boundary preamble '%s'\n",
+										ESPWS_DEBUG_S(L,"[%s] Unrecognised part boundary preamble '%s'\n",
 											_request._remoteIdent.c_str(), line.c_str());
 										__reqState(REQUEST_ERROR);
 										return;
 									} else {
-										ESPWS_DEBUGVV("[%s] Part Start\n", _request._remoteIdent.c_str());
+										ESPWS_DEBUGVV_S(L,"[%s] Part Start\n", _request._remoteIdent.c_str());
 										_state = MP_PARSER_TERMINATE;
 									}
 								}
@@ -786,17 +806,17 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 									if (_filepart) {
 										_state = MP_PARSER_CONTENT;
 										if (!_filename) {
-											ESPWS_DEBUG("[%s] WARNING: Empty file name\n",
+											ESPWS_DEBUG_S(L,"[%s] WARNING: Empty file name\n",
 												_request._remoteIdent.c_str());
 										}
 										if (!_contentType) {
-											ESPWS_DEBUG("[%s] WARNING: No content type specified\n",
+											ESPWS_DEBUG_S(L,"[%s] WARNING: No content type specified\n",
 												_request._remoteIdent.c_str());
 											_contentType = "text/plain";
 										}
 									} else _state = MP_PARSER_VALUE;
 								} else {
-									ESPWS_DEBUGVV("[%s] Part End\n", _request._remoteIdent.c_str());
+									ESPWS_DEBUGVV_S(L,"[%s] Part End\n", _request._remoteIdent.c_str());
 									_state = MP_PARSER_HEADER;
 								}
 							}
@@ -807,13 +827,13 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 					} break;
 
 					case MP_PARSER_TERMINATE:
-						ESPWS_DEBUG("[%s] WARNING: Ignoring terminated data (%d bytes)\n",
+						ESPWS_DEBUG_S(L,"[%s] WARNING: Ignoring terminated data (%d bytes)\n",
 							_request._remoteIdent.c_str(), len);
 						len = 0;
 						break;
 
 					default:
-						ESPWS_DEBUG("[%s] Invalid request parameter state '%s'\n",
+						ESPWS_DEBUG_S(L,"[%s] Invalid request parameter state '%s'\n",
 							_request._remoteIdent.c_str(), _stateToString());
 						__reqState(REQUEST_ERROR);
 				}
@@ -821,7 +841,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 			if (len) _temp = String(str, len);
 			_checkReachEnd([&]{
 				if (_state != MP_PARSER_TERMINATE) {
-					ESPWS_DEBUG("[%s] Excessive data at end of body\n",
+					ESPWS_DEBUG_S(L,"[%s] Excessive data at end of body\n",
 						_request._remoteIdent.c_str());
 					__reqState(REQUEST_ERROR);
 				}

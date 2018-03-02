@@ -33,6 +33,7 @@
 
 #ifndef ESPWS_LOG
 #define ESPWS_LOG(...) ESPZW_LOG(__VA_ARGS__)
+#define ESPWS_LOG_S(...) ESPZW_LOG_S(__VA_ARGS__)
 #endif
 
 #ifndef ESPWS_DEBUG_LEVEL
@@ -42,25 +43,31 @@
 #if ESPWS_DEBUG_LEVEL < 1
 	#define ESPWS_DEBUGDO(...)
 	#define ESPWS_DEBUG(...)
+	#define ESPWS_DEBUG_S(...)
 #else
 	#define ESPWS_DEBUGDO(...) __VA_ARGS__
 	#define ESPWS_DEBUG(...) ESPWS_LOG(__VA_ARGS__)
+	#define ESPWS_DEBUG_S(...) ESPWS_LOG_S(__VA_ARGS__)
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 2
 	#define ESPWS_DEBUGVDO(...)
 	#define ESPWS_DEBUGV(...)
+	#define ESPWS_DEBUGV_S(...)
 #else
 	#define ESPWS_DEBUGVDO(...) __VA_ARGS__
 	#define ESPWS_DEBUGV(...) ESPWS_LOG(__VA_ARGS__)
+	#define ESPWS_DEBUGV_S(...) ESPWS_LOG_S(__VA_ARGS__)
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 3
 	#define ESPWS_DEBUGVVDO(...)
 	#define ESPWS_DEBUGVV(...)
+	#define ESPWS_DEBUGVV_S(...)
 #else
 	#define ESPWS_DEBUGVVDO(...) __VA_ARGS__
 	#define ESPWS_DEBUGVV(...) ESPWS_LOG(__VA_ARGS__)
+	#define ESPWS_DEBUGVV_S(...) ESPWS_LOG_S(__VA_ARGS__)
 #endif
 
 #define STRICT_PROTOCOL
@@ -111,20 +118,28 @@ typedef enum {
 } WebRequestMethod;
 
 typedef uint16_t WebRequestMethodComposite;
-extern WebRequestMethodComposite const HTTP_ANY;
-extern WebRequestMethodComposite const HTTP_ANY_READ;
-extern WebRequestMethodComposite const HTTP_ANY_WRITE;
-extern WebRequestMethodComposite const HTTP_STANDARD;
-extern WebRequestMethodComposite const HTTP_STANDARD_READ;
-extern WebRequestMethodComposite const HTTP_STANDARD_WRITE;
 extern WebRequestMethodComposite const HTTP_BASIC;
 extern WebRequestMethodComposite const HTTP_BASIC_READ;
 extern WebRequestMethodComposite const HTTP_BASIC_WRITE;
+extern WebRequestMethodComposite const HTTP_EXT;
+extern WebRequestMethodComposite const HTTP_EXT_READ;
+extern WebRequestMethodComposite const HTTP_EXT_WRITE;
+extern WebRequestMethodComposite const HTTP_STANDARD;
+extern WebRequestMethodComposite const HTTP_STANDARD_READ;
+extern WebRequestMethodComposite const HTTP_STANDARD_WRITE;
 #ifdef HANDLE_WEBDAV
+extern WebRequestMethodComposite const HTTP_DAVEXT;
+extern WebRequestMethodComposite const HTTP_DAVEXT_READ;
+extern WebRequestMethodComposite const HTTP_DAVEXT_WRITE;
+extern WebRequestMethodComposite const HTTP_DAVEXT_CONTROL;
 extern WebRequestMethodComposite const HTTP_WEBDAV;
 extern WebRequestMethodComposite const HTTP_WEBDAV_READ;
 extern WebRequestMethodComposite const HTTP_WEBDAV_WRITE;
 #endif
+extern WebRequestMethodComposite const HTTP_ANY;
+extern WebRequestMethodComposite const HTTP_ANY_READ;
+extern WebRequestMethodComposite const HTTP_ANY_WRITE;
+
 /*
  * HEADER :: Hold a header and its values
  * */
@@ -134,8 +149,8 @@ class AsyncWebHeader {
 		String name;
 		StringArray values;
 
-		AsyncWebHeader(const String& n, const String& v): name(n) { values.append(v); }
-		AsyncWebHeader(String&& n, String&& v): name(std::move(n)) { values.append(std::move(v)); }
+		AsyncWebHeader(String const &n, String const &v): name(n) { values.append(v); }
+		AsyncWebHeader(String &&n, String &&v): name(std::move(n)) { values.append(std::move(v)); }
 };
 
 /*
@@ -147,8 +162,8 @@ class AsyncWebQuery {
 		String name;
 		String value;
 
-		AsyncWebQuery(const String& n, const String& v): name(n), value(v) {}
-		AsyncWebQuery(String&& n, String&& v): name(std::move(n)), value(std::move(v)) {}
+		AsyncWebQuery(String const &n, String const &v): name(n), value(v) {}
+		AsyncWebQuery(String &&n, String &&v): name(std::move(n)), value(std::move(v)) {}
 };
 
 #ifdef HANDLE_REQUEST_CONTENT
@@ -159,8 +174,8 @@ class AsyncWebParam {
 		String name;
 		String value;
 
-		AsyncWebParam(const String& n, const String& v): name(n), value(v) {}
-		AsyncWebParam(String&& n, String&& v): name(std::move(n)), value(std::move(v)) {}
+		AsyncWebParam(String const &n, String const &v): name(n), value(v) {}
+		AsyncWebParam(String &&n, String &&v): name(std::move(n)), value(std::move(v)) {}
 };
 #endif
 
@@ -170,8 +185,8 @@ class AsyncWebUpload : public AsyncWebParam {
 		String contentType;
 		size_t contentLength;
 
-		AsyncWebUpload(const String& n, const String& v): AsyncWebParam(n, v) {}
-		AsyncWebUpload(String&& n, String&& v): AsyncWebParam(std::move(n), std::move(v)) {}
+		AsyncWebUpload(String const &n, String const &v): AsyncWebParam(n, v) {}
+		AsyncWebUpload(String &&n, String &&v): AsyncWebParam(std::move(n), std::move(v)) {}
 };
 #endif
 
@@ -224,6 +239,8 @@ class AsyncWebRequest {
 		String _oQuery;
 
 		String _host;
+		String _accept;
+		String _userAgent;
 		String _contentType;
 		size_t _contentLength;
 
@@ -252,8 +269,8 @@ class AsyncWebRequest {
 		void _onDisconnect(void);
 		void _onData(void *buf, size_t len);
 
-		void _setUrl(String const& url) { _setUrl(std::move(String(url))); }
-		void _setUrl(String && url);
+		void _setUrl(String const& url) { _setUrl(String(url)); }
+		void _setUrl(String &&url);
 		void _parseQueries(char *buf);
 
 #ifdef HANDLE_AUTHENTICATION
@@ -266,7 +283,7 @@ class AsyncWebRequest {
 				return name.equals(v.name);
 			});
 			if (qPtr) {
-				ESPWS_DEBUG("[%s] WARNING: Override value '%s' of duplicate key '%s'\n",
+				ESPWS_DEBUG_S(T,"[%s] WARNING: Override value '%s' of duplicate key '%s'\n",
 					_remoteIdent.c_str(), qPtr->value.c_str(), qPtr->name.c_str());
 				qPtr->value = std::move(value);
 				return *qPtr;
@@ -292,15 +309,17 @@ class AsyncWebRequest {
 		uint8_t version(void) const { return _version; }
 		WebRequestMethod method(void) const { return _method; }
 		const char * methodToString(void) const;
-		const String& url(void) const { return _url; }
-		const String& oUrl(void) const { return _oUrl; }
-		const String& oQuery(void) const { return _oQuery; }
+		String const &url(void) const { return _url; }
+		String const &oUrl(void) const { return _oUrl; }
+		String const &oQuery(void) const { return _oQuery; }
 
-		const String& host(void) const { return _host; }
+		String const &host(void) const { return _host; }
+		String const &accept(void) const { return _accept; }
+		String const &userAgent(void) const { return _userAgent; }
 		bool keepAlive(void) const { return _keepAlive; }
 
-		const String& contentType(void) const { return _contentType; }
-		bool contentType(const String& type) const { return _contentType.equalsIgnoreCase(type); }
+		String const &contentType(void) const { return _contentType; }
+		bool contentType(String const &type) const { return _contentType.equalsIgnoreCase(type); }
 		size_t contentLength(void) const { return _contentLength; }
 
 #ifdef HANDLE_AUTHENTICATION
@@ -308,15 +327,15 @@ class AsyncWebRequest {
 #endif
 
 		size_t headers(void) const { return _headers.length(); }
-		bool hasHeader(const String& name) const;
-		AsyncWebHeader const* getHeader(const String& name) const;
+		bool hasHeader(String const &name) const;
+		AsyncWebHeader const* getHeader(String const &name) const;
 
 		void enumHeaders(LinkedList<AsyncWebHeader>::Predicate const& Pred)
 		{ _headers.get_if(Pred); }
 
 		size_t queries(void) const { return _queries.length(); }
-		bool hasQuery(const String& name) const;
-		AsyncWebQuery const* getQuery(const String& name) const;
+		bool hasQuery(String const &name) const;
+		AsyncWebQuery const* getQuery(String const &name) const;
 
 		void enumQueries(LinkedList<AsyncWebQuery>::Predicate const& Pred)
 		{ _queries.get_if(Pred); }
@@ -325,8 +344,8 @@ class AsyncWebRequest {
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 		size_t params(void) const { return _params.length(); }
-		bool hasParam(const String& name) const;
-		AsyncWebParam const* getParam(const String& name) const;
+		bool hasParam(String const &name) const;
+		AsyncWebParam const* getParam(String const &name) const;
 
 		void enumParams(LinkedList<AsyncWebParam>::Predicate const& Pred)
 		{ _params.get_if(Pred); }
@@ -334,8 +353,8 @@ class AsyncWebRequest {
 
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 		size_t uploads(void) const { return _uploads.length(); }
-		bool hasUpload(const String& name) const;
-		AsyncWebUpload const* getUpload(const String& name) const;
+		bool hasUpload(String const &name) const;
+		AsyncWebUpload const* getUpload(String const &name) const;
 
 		void enumUploads(LinkedList<AsyncWebUpload>::Predicate const& Pred)
 		{ _uploads.get_if(Pred); }
@@ -347,42 +366,49 @@ class AsyncWebRequest {
 		void noKeepAlive(void) { _keepAlive = false; }
 
 		// Response short-hands
-		void redirect(const String& url);
+		void redirect(String const &url);
 
-		AsyncPrintResponse *beginPrintResponse(int code, const String& contentType);
+		AsyncPrintResponse *beginPrintResponse(int code, String const &contentType);
 
-		AsyncWebResponse *beginResponse(int code, const String& content=EMPTY_STRING, const String& contentType=EMPTY_STRING);
-		AsyncWebResponse *beginResponse(FS &fs, const String& path, const String& contentType=EMPTY_STRING, bool download=false);
-		AsyncWebResponse *beginResponse(File content, const String& path, const String& contentType=EMPTY_STRING, bool download=false);
-		AsyncWebResponse *beginResponse(int code, Stream &content, const String& contentType, size_t len);
-		AsyncWebResponse *beginResponse(int code,  AwsResponseFiller callback, const String& contentType, size_t len);
-		AsyncWebResponse *beginChunkedResponse(int code,  AwsResponseFiller callback, const String& contentType);
-		AsyncWebResponse *beginResponse_P(int code, const uint8_t * content, const String& contentType, size_t len);
-		AsyncWebResponse *beginResponse_P(int code, PGM_P content, const String& contentType);
+		AsyncWebResponse *beginResponse(int code, String const &content=String::EMPTY,
+			String const &contentType=String::EMPTY);
+		AsyncWebResponse *beginResponse(FS &fs, String const &path,
+			String const &contentType=String::EMPTY, int code = 200, bool download=false);
+		AsyncWebResponse *beginResponse(File content, String const &path,
+			String const &contentType=String::EMPTY, int code = 200, bool download=false);
+		AsyncWebResponse *beginResponse(int code, Stream &content,
+			String const &contentType, size_t len);
+		AsyncWebResponse *beginResponse(int code, AwsResponseFiller callback,
+			String const &contentType, size_t len);
+		AsyncWebResponse *beginChunkedResponse(int code,  AwsResponseFiller callback,
+			String const &contentType);
+		AsyncWebResponse *beginResponse_P(int code, PGM_P content,
+			String const &contentType, size_t len=-1);
 
-		inline void send(int code, const String& content=EMPTY_STRING, const String& contentType=EMPTY_STRING)
+		inline void send(int code, String const &content=String::EMPTY,
+			String const &contentType=String::EMPTY)
 		{ send(beginResponse(code, content, contentType)); }
 
-		inline void send(FS &fs, const String& path, const String& contentType=EMPTY_STRING, bool download=false)
-		{ send(beginResponse(fs, path, contentType, download)); }
+		inline void send(FS &fs, String const &path, String const &contentType=String::EMPTY,
+			int code=200, bool download=false)
+		{ send(beginResponse(fs, path, contentType, code, download)); }
 
-		inline void send(File content, const String& path, const String& contentType=EMPTY_STRING, bool download=false)
-		{ send(beginResponse(content, path, contentType, download)); }
+		inline void send(File content, String const &path, String const &contentType=String::EMPTY,
+			int code=200, bool download=false)
+		{ send(beginResponse(content, path, contentType, code, download)); }
 
-		inline void send(int code, Stream &content, const String& contentType, size_t len)
+		inline void send(int code, Stream &content, String const &contentType, size_t len)
 		{ send(beginResponse(code, content, contentType, len)); }
 
-		inline void send(int code, AwsResponseFiller callback, const String& contentType, size_t len)
+		inline void send(int code, AwsResponseFiller callback, String const &contentType, size_t len)
 		{ send(beginResponse(code, callback, contentType, len)); }
 
-		inline void sendChunked(int code, AwsResponseFiller callback, const String& contentType)
+		inline void sendChunked(int code, AwsResponseFiller callback, String const &contentType)
 		{ send(beginChunkedResponse(code, callback, contentType)); }
 
-		inline void send_P(int code, const uint8_t * content, const String& contentType, size_t len)
-		{ send(beginResponse_P(code, content, contentType,  len)); }
+		inline void send_P(int code, PGM_P content, String const &contentType, size_t len=-1)
+		{ send(beginResponse_P(code, content, contentType, len)); }
 
-		inline void send_P(int code, PGM_P content, const String& contentType)
-		{ send(beginResponse_P(code, content, contentType)); }
 };
 
 /*
@@ -470,16 +496,16 @@ class AsyncWebRewrite : public AsyncWebFilterable {
  * */
 typedef std::function<void(AsyncWebRequest&)> ArRequestHandlerFunction;
 #ifdef HANDLE_REQUEST_CONTENT
-	typedef std::function<bool(AsyncWebRequest&, size_t, void*, size_t)> ArBodyHandlerFunction;
+typedef std::function<bool(AsyncWebRequest&, size_t, void*, size_t)> ArBodyHandlerFunction;
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-	typedef std::function<bool(AsyncWebRequest&, String const&,
-		size_t, void*, size_t)> ArParamDataHandlerFunction;
+typedef std::function<bool(AsyncWebRequest&, String const&,
+	size_t, void*, size_t)> ArParamDataHandlerFunction;
 #endif
 
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-	typedef std::function<bool(AsyncWebRequest&, String const&, String const&, String const&,
-		size_t, void*, size_t)> ArUploadDataHandlerFunction;
+typedef std::function<bool(AsyncWebRequest&, String const&, String const&, String const&,
+	size_t, void*, size_t)> ArUploadDataHandlerFunction;
 #endif
 
 #endif
@@ -590,7 +616,7 @@ class AsyncWebServer {
 
 				virtual bool _isInterestingHeader(String const& key) override { return true; }
 				virtual void _handleRequest(AsyncWebRequest &request) override
-				{ if (onRequest) onRequest(request); }
+				{ if (onRequest) onRequest(request); else request.send(500); }
 
 #ifdef HANDLE_REQUEST_CONTENT
 				virtual bool _handleBody(AsyncWebRequest &request,
@@ -655,7 +681,7 @@ class AsyncWebServer {
 		static char const *VERTOKEN;
 
 		AsyncWebServer(uint16_t port);
-		~AsyncWebServer() {}
+		~AsyncWebServer(void) {}
 
 #ifdef HANDLE_AUTHENTICATION
 		void configAuthority(SessionAuthority &Auth, Stream &ACLStream);

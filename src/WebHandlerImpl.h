@@ -27,6 +27,60 @@
 
 #include <ESPAsyncWebServer.h>
 
+class AsyncHostRedirWebHandler: public AsyncWebHandler {
+	protected:
+		void _redirectHost(AsyncWebRequest &request) {
+			String newLocation = "http://"+host;
+			if (altPath) newLocation.concat(altPath);
+			else {
+				newLocation.concat(request.oUrl());
+				if (request.oQuery())
+					newLocation.concat(request.oQuery());
+			}
+			request.redirect(newLocation);
+		}
+
+	public:
+		String const host;
+		String const altPath;
+		WebRequestMethodComposite const method;
+
+		AsyncHostRedirWebHandler(String const &h, String const &p, WebRequestMethodComposite m)
+			: host(h), altPath(p), method(m) {}
+		virtual bool _canHandle(AsyncWebRequest const &request) override;
+		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;
+
+		virtual void _handleRequest(AsyncWebRequest &request) override {
+			// Do not expect to reach here
+		}
+
+#ifdef HANDLE_REQUEST_CONTENT
+		virtual bool _handleBody(AsyncWebRequest &request,
+			size_t offset, void *buf, size_t size) override {
+			// Do not expect request body
+			return false;
+		}
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+		virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
+			size_t offset, void *buf, size_t size) override {
+			// Do not expect request param
+			return false;
+		}
+#endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+		virtual bool _handleUploadData(AsyncWebRequest &request, String const& name,
+			String const& filename, String const& contentType,
+			size_t offset, void *buf, size_t size) override {
+			// Do not expect request upload
+			return false;
+		}
+#endif
+
+#endif
+};
+
 class AsyncPathURIWebHandler: public AsyncWebHandler {
 	protected:
 		// May not be compliant with standard (no protocol and server),
@@ -38,12 +92,18 @@ class AsyncPathURIWebHandler: public AsyncWebHandler {
 			request.redirect(newLocation);
 		}
 
+		static String normalizePath(String const &p) {
+			String Ret = p[0]=='/'? p : "/"+p;
+			if (p.end()[-1] != '/' && p.end()[-1] != '$') Ret.concat('/');
+			return Ret;
+		}
+
 	public:
 		String const path;
 		WebRequestMethodComposite const method;
 
-		AsyncPathURIWebHandler(const String& p, WebRequestMethodComposite m)
-		: path((p[0]=='/'? String::EMPTY : "/")+p+(p.end()[-1]=='/'? String::EMPTY : "/")), method(m) {}
+		AsyncPathURIWebHandler(String const &p, WebRequestMethodComposite m)
+			: path(normalizePath(p)), method(m) {}
 
 		virtual bool _canHandle(AsyncWebRequest const &request) override;
 		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;
@@ -65,7 +125,7 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 		ArRequestHandlerFunction _onIndexNotFound;
 		ArRequestHandlerFunction _onDirRedirect;
 
-		AsyncStaticWebHandler(const String& path, Dir const& dir, const char* cache_control);
+		AsyncStaticWebHandler(String const &path, Dir const& dir, const char* cache_control);
 
 		virtual bool _isInterestingHeader(String const& key) override;
 
@@ -119,8 +179,8 @@ class AsyncCallbackWebHandler: public AsyncPathURIWebHandler {
 
 #endif
 
-		AsyncCallbackWebHandler(const String& path, WebRequestMethodComposite method = HTTP_ANY)
-		: AsyncPathURIWebHandler(path, method) {}
+		AsyncCallbackWebHandler(String const &path, WebRequestMethodComposite method = HTTP_ANY)
+			: AsyncPathURIWebHandler(path, method) {}
 
 		virtual bool _isInterestingHeader(String const& key) override
 		{ return interestedHeaders.containsIgnoreCase(key); }

@@ -25,31 +25,54 @@
  * Abstract handler
  * */
 
-static const char RESPONSE_CONTINUE[] = "HTTP/1.1 100 Continue\r\n\r\n";
+static const char RESPONSE_CONTINUE[] PROGMEM = "HTTP/1.1 100 Continue\r\n\r\n";
 
 bool AsyncWebHandler::_checkContinue(AsyncWebRequest &request, bool continueHeader) {
 	if (continueHeader) {
 		// ASSUMPTION: write always succeed
-		request._client.write(RESPONSE_CONTINUE, sizeof(RESPONSE_CONTINUE));
+		String Resp(FPSTR(RESPONSE_CONTINUE));
+		request._client.write(Resp.begin(), Resp.length());
 	}
 	return true;
 }
 
 /*
- * Path-based URI handler
+ * Host redirection handler
+ * */
+
+bool AsyncHostRedirWebHandler::_canHandle(AsyncWebRequest const &request) {
+	if (!(method & request.method())) return false;
+	if (!request.host()) {
+		ESPWS_DEBUG("[%s] Host header not provided (at least not early enough)!\n",
+			request._remoteIdent.c_str());
+		return false;
+	}
+	return !request.host().equalsIgnoreCase(host);
+}
+
+bool AsyncHostRedirWebHandler::_checkContinue(AsyncWebRequest &request, bool continueHeader) {
+	ESPWS_DEBUGVV("[%s] Host re-dir: [%s] -> [%s]\n",
+		request._remoteIdent.c_str(), request.host().c_str(), host.c_str());
+	_redirectHost(request);
+	return false;
+}
+
+/*
+ * Path-based handler
  * */
 
 bool AsyncPathURIWebHandler::_canHandle(AsyncWebRequest const &request) {
 	if (!(method & request.method())) return false;
 
 	if (request.url().startsWith(path)) {
-		ESPWS_DEBUGVV("[%s] '%s' matches '%s'\n",
+		ESPWS_DEBUGVV("[%s] '%s' prefix match '%s'\n",
 			request._remoteIdent.c_str(), path.c_str(), request.url().c_str());
 		return true;
 	}
 
 	if (request.url().length()+1 == path.length() && path.startsWith(request.url())) {
-		// Matched directory without final slash
+		ESPWS_DEBUGVV("[%s] '%s' control match '%s'\n",
+		request._remoteIdent.c_str(), path.c_str(), request.url().c_str());
 		return true;
 	}
 
@@ -57,8 +80,8 @@ bool AsyncPathURIWebHandler::_canHandle(AsyncWebRequest const &request) {
 }
 
 bool AsyncPathURIWebHandler::_checkContinue(AsyncWebRequest &request, bool continueHeader) {
-	if (request.url().length()+1 == path.length()) {
-		ESPWS_DEBUGVV("[%s] Re-Dir: '%s'\n",
+	if (request.url().length()+1 == path.length() && path.end()[-1] == '/') {
+		ESPWS_DEBUGVV("[%s] Path re-dir: '%s'\n",
 			request._remoteIdent.c_str(), request.url().c_str());
 		_redirectDir(request);
 		return false;
@@ -70,7 +93,7 @@ bool AsyncPathURIWebHandler::_checkContinue(AsyncWebRequest &request, bool conti
  * Static Directory & File handler
  * */
 
-AsyncStaticWebHandler::AsyncStaticWebHandler(const String& path, Dir const& dir,
+AsyncStaticWebHandler::AsyncStaticWebHandler(String const &path, Dir const& dir,
 	const char* cache_control)
 	: AsyncPathURIWebHandler(path, HTTP_GET), _dir(dir), _cache_control(cache_control)
 {
@@ -235,19 +258,19 @@ void AsyncStaticWebHandler::_sendDirList(AsyncWebRequest &request) {
 	uint32_t startTS = millis();
 	ESPWS_DEBUGV("[%s] Sending dir listing of '%s'\n", request._remoteIdent.c_str(), CWD.name());
 	String OvfBuf;
-	OvfBuf.concat("<html><head><title>Directory content of '");
+	OvfBuf.concat(F("<html><head><title>Directory content of '"));
 	OvfBuf.concat(request.url());
-	OvfBuf.concat("'</title><style>table{width:100%;border-collapse:collapse}"
+	OvfBuf.concat(F("'</title><style>table{width:100%;border-collapse:collapse}"
 		"th{background:#DDD;text-align:right}th:first-child{text-align:left}"
 		"td{text-align:right}td:first-child{text-align:left}"
 		"div.footnote{font-size:small;text-align:right}</style><head>"
-		"<body><h1>Directory '");
+		"<body><h1>Directory '"));
 	OvfBuf.concat(request.url());
-	OvfBuf.concat("'</h1><hr><table><thead>"
+	OvfBuf.concat(F("'</h1><hr><table><thead>"
 		"<tr><th>Name</th><th>Size (bytes)</th><th>Modification Time</th></tr>"
-		"</thead><tbody>");
+		"</thead><tbody>"));
 	if (subpath)
-		OvfBuf.concat("<tr><td><a href='..'>(Parent directory)</a></td><td></td><td></td></tr>");
+		OvfBuf.concat(F("<tr><td><a href='..'>(Parent directory)</a></td><td></td><td></td></tr>"));
 	CWD.next(true);
 
 	request.sendChunked(200,
@@ -264,7 +287,7 @@ void AsyncStaticWebHandler::_sendDirList(AsyncWebRequest &request) {
 					{
 						String EntryRef = CWD.entryName();
 						if (CWD.isEntryDir()) EntryRef.concat('/');
-						OvfBuf.concat("<tr><td><a href='");
+						OvfBuf.concat("<tr><td><a href='",17);
 						OvfBuf.concat(EntryRef);
 						OvfBuf.concat("'>",2);
 						OvfBuf.concat(EntryRef);
@@ -279,13 +302,13 @@ void AsyncStaticWebHandler::_sendDirList(AsyncWebRequest &request) {
 					CWD.next();
 				} else {
 					uint32_t endTS = millis();
-					OvfBuf.concat("</tbody></table><hr><div class='footnote'>Served by ");
+					OvfBuf.concat(F("</tbody></table><hr><div class='footnote'>Served by "));
 					OvfBuf.concat(request._server.VERTOKEN);
-					OvfBuf.concat(" (",2);
+					OvfBuf.concat(F(" ("));
 					OvfBuf.concat(GetPlatformAnnotation());
-					OvfBuf.concat(") [",3);
+					OvfBuf.concat(F(") ["));
 					OvfBuf.concat(endTS-startTS);
-					OvfBuf.concat("ms]</span></body></html>");
+					OvfBuf.concat(F("ms]</span></body></html>"));
 					CWD = Dir();
 				}
 				size_t moveLen = OvfBuf.length() < len-outLen? OvfBuf.length(): len-outLen;

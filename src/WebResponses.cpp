@@ -325,7 +325,9 @@ void AsyncBasicResponse::_assembleHead(void) {
 
 void AsyncBasicResponse::_prepareContentSendBuf(size_t space) {
 	// While we establish the concept, non-null content is not supported, yet
-	while (_contentLength && _contentLength != -1) panic();
+	if (_contentLength && _contentLength != -1) {
+		ESPWS_DEBUGV("[%s] WARNING: Non-null content support not implemented!\n");
+	}
 	AsyncSimpleResponse::_prepareContentSendBuf(space);
 }
 
@@ -431,8 +433,8 @@ void AsyncBufferedResponse::_releaseSendBuf(bool more) {
  * */
 
 AsyncFileResponse::AsyncFileResponse(File const& content, const String& path,
-	const String& contentType, bool download)
-	: AsyncBufferedResponse(200, contentType)
+	const String& contentType, int code, bool download)
+	: AsyncBufferedResponse(code, contentType)
 	, _content(content)
 {
 	if (_content) {
@@ -530,14 +532,16 @@ size_t AsyncStreamResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
  * ProgMem Content Response
  * */
 
-AsyncProgmemResponse::AsyncProgmemResponse(int code, const uint8_t* content,
+AsyncProgmemResponse::AsyncProgmemResponse(int code, PGM_P content,
 	const String& contentType, size_t len)
 	: AsyncBufferedResponse(code, contentType)
 	, _content(content)
 {
 	_contentLength = len;
-	// Invalid length value
-	if (_contentLength == -1) panic();
+	if (_contentLength == -1) {
+		_contentLength = strlen_P(content);
+		ESPWS_DEBUGV("PROGMEM string length = %d\n", _contentLength);
+	}
 }
 
 size_t AsyncProgmemResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {

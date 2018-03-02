@@ -89,14 +89,14 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 			if (!running) {
 				running = true;
 				os_timer_arm(&timer, SCHED_RES, true);
-				ESPWS_DEBUGVV("<Scheduler> Start\n");
+				ESPWS_DEBUGVV_S(T,"<Scheduler> Start\n");
 			}
 		}
 		void stopTimer(void) {
 			if (running) {
 				running = false;
 				os_timer_disarm(&timer);
-				ESPWS_DEBUGVV("<Scheduler> Stop\n");
+				ESPWS_DEBUGVV_S(T,"<Scheduler> Stop\n");
 			}
 		}
 
@@ -112,12 +112,12 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 
 		void schedule(AsyncWebRequest *req) {
 			if (append(req) == 0) startTimer();
-			ESPWS_DEBUGVV("<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+			ESPWS_DEBUGVV_S(T,"<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
 		}
 
 		void deschedule(AsyncWebRequest *req) {
 			remove(req);
-			ESPWS_DEBUGVV("<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+			ESPWS_DEBUGVV_S(T,"<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
 		}
 
 		void curValidator(AsyncWebRequest *x) {
@@ -247,6 +247,8 @@ void AsyncWebRequest::_recycleClient(void) {
 	_contentType.clear(true);
 	_url.clear(true);
 	_host.clear(true);
+	_accept.clear(true);
+	_userAgent.clear(true);
 	_oUrl.clear(true);
 	_oQuery.clear(true);
 	_headers.clear();
@@ -384,6 +386,8 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 		// NOTE: these resources should not be freed if CGI-like features are to be implemented
 		_url.clear(true);
 		_host.clear(true);
+		_accept.clear(true);
+		_userAgent.clear(true);
 	}
 }
 
@@ -499,13 +503,13 @@ AsyncWebResponse * AsyncWebRequest::beginResponse(int code, const String& conten
 }
 
 AsyncWebResponse * AsyncWebRequest::beginResponse(FS &fs, const String& path,
-	const String& contentType, bool download){
-	return new AsyncFileResponse(fs, path, contentType, download);
+	const String& contentType, int code, bool download){
+	return new AsyncFileResponse(fs, path, contentType, code, download);
 }
 
 AsyncWebResponse * AsyncWebRequest::beginResponse(File content, const String& path,
-	const String& contentType, bool download){
-	return new AsyncFileResponse(content, path, contentType, download);
+	const String& contentType, int code, bool download){
+	return new AsyncFileResponse(content, path, contentType, code, download);
 }
 
 AsyncWebResponse * AsyncWebRequest::beginResponse(int code, Stream &content,
@@ -528,14 +532,9 @@ AsyncPrintResponse * AsyncWebRequest::beginPrintResponse(int code, const String&
 	return new AsyncPrintResponse(code, contentType);
 }
 
-AsyncWebResponse * AsyncWebRequest::beginResponse_P(int code, const uint8_t * content,
+AsyncWebResponse * AsyncWebRequest::beginResponse_P(int code, PGM_P content,
 	const String& contentType, size_t len){
 	return new AsyncProgmemResponse(code, content, contentType, len);
-}
-
-AsyncWebResponse * AsyncWebRequest::beginResponse_P(int code, PGM_P content,
-	const String& contentType){
-	return beginResponse_P(code, (const uint8_t *)content, contentType, strlen_P(content));
 }
 
 void AsyncWebRequest::redirect(const String& url){

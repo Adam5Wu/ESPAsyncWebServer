@@ -42,7 +42,15 @@ class AsyncWebParser {
 		void __setUrl(char const *newUrl) { _request._setUrl(newUrl); }
 		void __setHost(String &newHost) {
 			if (newHost) _request._host = std::move(newHost);
-			else { _request._host.reserve(0); _request._host.clear(); }
+			else { _request._host.clear(true); }
+		}
+		void __setUserAgent(String &newUserAgent) {
+			if (newUserAgent) _request._userAgent = std::move(newUserAgent);
+			else { _request._userAgent.clear(true); }
+		}
+		void __setAccept(String &newAccept) {
+			if (newAccept) _request._accept = std::move(newAccept);
+			else { _request._accept.clear(true); }
 		}
 		void __setKeepAlive(bool state) { _request._keepAlive = state; }
 		void __setContentType(String &newContentType)
@@ -72,9 +80,7 @@ class AsyncWebParser {
 				return _request._params.back();
 			} else return _request._addUniqueNameVal(_request._params, key, value);
 		}
-#endif
 
-#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 		AsyncWebUpload& __addUpload(String &key, String &filename, String &contentType,
 			size_t contentLength) {
 			_request._uploads.append(AsyncWebUpload(std::move(key), std::move(filename)));
@@ -110,6 +116,7 @@ class AsyncRequestHeadParser: public AsyncWebParser {
 		HeaderParserState _state;
 		String _temp;
 
+		bool _handlerAttached = false;
 		bool _expectingContinue = false;
 #ifdef HANDLE_AUTHENTICATION
 		String _authorization;
@@ -121,7 +128,7 @@ class AsyncRequestHeadParser: public AsyncWebParser {
 
 	public:
 		AsyncRequestHeadParser(AsyncWebRequest &request)
-		: AsyncWebParser(request), _state(H_PARSER_ACCU), _expectingContinue(false)
+		: AsyncWebParser(request), _state(H_PARSER_ACCU)
 #ifdef HANDLE_AUTHENTICATION
 		//, _authorization()
 #endif

@@ -140,11 +140,11 @@ class AsyncFileResponse: public AsyncBufferedResponse {
 
 	public:
 		AsyncFileResponse(FS &fs, const String& path, const String& contentType=String(),
-			bool download=false)
-			: AsyncFileResponse(fs.open(path, "r"), path, contentType, download) {}
+			int code=200, bool download=false)
+			: AsyncFileResponse(fs.open(path, "r"), path, contentType, code, download) {}
 
 		AsyncFileResponse(File const& content, const String& path,
-			const String& contentType=String(), bool download=false);
+			const String& contentType=String(), int code=200, bool download=false);
 };
 
 class AsyncStreamResponse: public AsyncBufferedResponse {
@@ -161,15 +161,13 @@ class AsyncStreamResponse: public AsyncBufferedResponse {
 
 class AsyncProgmemResponse: public AsyncBufferedResponse {
 	private:
-		const uint8_t* _content;
+		PGM_P _content;
 
 	protected:
-		virtual void _assembleHead(void) override;
 		virtual size_t _fillBuffer(uint8_t *buf, size_t maxLen) override;
 
 	public:
-		AsyncProgmemResponse(int code, const uint8_t* content,
-			const String& contentType, size_t len);
+		AsyncProgmemResponse(int code, PGM_P content, const String& contentType, size_t len);
 };
 
 class AsyncCallbackResponse: public AsyncBufferedResponse {

@@ -92,7 +92,6 @@ class AnonymousAccountAuthority : public DummyIdentityProvider, public BasicAuth
 } ANONYMOUS_AUTH;
 
 static SessionAuthority ANONYMOUS_SESSIONS(&ANONYMOUS_AUTH, &ANONYMOUS_AUTH);
-static String const OPENACL("/:$BR:Anonymous");
 #endif
 
 AsyncWebServer::AsyncWebServer(uint16_t port)
@@ -114,9 +113,10 @@ AsyncWebServer::AsyncWebServer(uint16_t port)
 		((AsyncWebServer*)arg)->_handleClient(c);
 	}, this);
 #ifdef HANDLE_AUTHENTICATION
-	StreamString ACLStream;
-	ACLStream.concat(OPENACL);
-	loadACL(ACLStream);
+	HTTPACL ACL("/");
+	ACL.METHODS = HTTP_BASIC_READ;
+	ACL.IDENTS.append(&IdentityProvider::ANONYMOUS);
+	_ACLs.append(std::move(ACL));
 #endif
 }
 
