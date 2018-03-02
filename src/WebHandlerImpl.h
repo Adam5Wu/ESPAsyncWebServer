@@ -113,25 +113,38 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 	protected:
 		Dir _dir;
 		String _cache_control;
-		String _indexFile;
-		bool _gzLookup, _gzFirst;
+		String _GET_indexFile;
+		bool _GET_gzLookup, _GET_gzFirst;
 
-		void _sendDirList(AsyncWebRequest &request);
+		void _GET_sendDirList(AsyncWebRequest &request);
 		void _pathNotFound(AsyncWebRequest &request);
 
+		void _handleRead(AsyncWebRequest &request);
+#ifdef ADVANCED_STATIC_WEBHANDLER
+		void _handleWrite(AsyncWebRequest &request);
+		void _handleDelete(AsyncWebRequest &request);
+#endif
+
 	public:
-		ArRequestHandlerFunction _onIndex;
-		ArRequestHandlerFunction _onPathNotFound;
-		ArRequestHandlerFunction _onIndexNotFound;
+		ArRequestHandlerFunction _onGETIndex;
+		ArRequestHandlerFunction _onGETPathNotFound;
+		ArRequestHandlerFunction _onGETIndexNotFound;
 		ArRequestHandlerFunction _onDirRedirect;
 
-		AsyncStaticWebHandler(String const &path, Dir const& dir, const char* cache_control);
+		AsyncStaticWebHandler(String const &path, Dir const& dir, const char* cache_control
+#ifdef ADVANCED_STATIC_WEBHANDLER
+			, bool write_support
+#endif
+		);
 
 		virtual bool _isInterestingHeader(String const& key) override;
+#ifdef ADVANCED_STATIC_WEBHANDLER
+		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;
+#endif
 
 		AsyncStaticWebHandler& setCacheControl(const char* cache_control);
-		AsyncStaticWebHandler& lookupGZ(bool gzLookup, bool gzFirst);
-		AsyncStaticWebHandler& setIndexFile(const char* filename);
+		AsyncStaticWebHandler& setGETLookupGZ(bool gzLookup, bool gzFirst);
+		AsyncStaticWebHandler& setGETIndexFile(const char* filename);
 
 		virtual void _handleRequest(AsyncWebRequest &request) override;
 
@@ -167,33 +180,33 @@ class AsyncCallbackWebHandler : virtual public AsyncWebHandler {
 		ArRequestHandlerFunction onRequest;
 #ifdef HANDLE_REQUEST_CONTENT
 		ArBodyHandlerFunction onBody;
-		
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 		ArParamDataHandlerFunction onParamData;
 #endif
-	
+
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 		ArUploadDataHandlerFunction onUploadData;
 #endif
-		
+
 #endif
-	
+
 		virtual void _handleRequest(AsyncWebRequest &request) override {
 			if (onRequest) onRequest(request);
 			else request.send(500);
 		}
-	
+
 #ifdef HANDLE_REQUEST_CONTENT
 		virtual bool _handleBody(AsyncWebRequest &request,
 			size_t offset, void *buf, size_t size) override
 		{ return onBody? onBody(request, offset, buf, size) : true; }
-		
+
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 		virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
 			size_t offset, void *buf, size_t size) override
 		{ return onParamData? onParamData(request, name, offset, buf, size) : true; }
 #endif
-	
+
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 		virtual bool _handleUploadData(AsyncWebRequest &request, String const& name,
 			String const& filename, String const& contentType,
@@ -202,10 +215,10 @@ class AsyncCallbackWebHandler : virtual public AsyncWebHandler {
 			offset, buf, size) : true;
 		}
 	#endif
-		
+
 #endif
 };
-	
+
 class AsyncPathURICallbackWebHandler: public AsyncPathURIWebHandler, public AsyncCallbackWebHandler {
 	public:
 		StringArray interestedHeaders;

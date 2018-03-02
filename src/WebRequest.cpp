@@ -222,15 +222,16 @@ ESPWS_DEBUGDO(const char* AsyncWebRequest::_stateToString(void) const {
 })
 
 #ifdef HANDLE_AUTHENTICATION
-bool AsyncWebRequest::_setSession(AuthSession *session) {
+WebACLMatchResult AsyncWebRequest::_setSession(AuthSession *session) {
 	delete _session;
-	if (session && _server._checkACL(*this, session)) {
-		_session = session;
-		return true;
-	}
 	_session = NULL;
-	delete session;
-	return false;
+
+	WebACLMatchResult Ret = ACL_NONE;
+	if (session) {
+		Ret = _server._checkACL(*this, session);
+		if (Ret == ACL_ALLOWED) _session = session;
+	}
+	return Ret;
 }
 #endif
 
@@ -435,21 +436,21 @@ void AsyncWebRequest::_parseQueries(char *buf){
 	}
 }
 
-bool AsyncWebRequest::hasHeader(const String& name) const {
+bool AsyncWebRequest::hasHeader(String const &name) const {
 	return getHeader(name) != NULL;
 }
 
-AsyncWebHeader const* AsyncWebRequest::getHeader(const String& name) const {
+AsyncWebHeader const* AsyncWebRequest::getHeader(String const &name) const {
 	return _headers.get_if([&](AsyncWebHeader const &v) {
 		return name.equalsIgnoreCase(v.name);
 	});
 }
 
-bool AsyncWebRequest::hasQuery(const String& name) const {
+bool AsyncWebRequest::hasQuery(String const &name) const {
 	return getQuery(name) != NULL;
 }
 
-AsyncWebQuery const* AsyncWebRequest::getQuery(const String& name) const {
+AsyncWebQuery const* AsyncWebRequest::getQuery(String const &name) const {
 	return _queries.get_if([&](AsyncWebQuery const &v) {
 		return name.equals(v.name);
 	});
@@ -458,11 +459,11 @@ AsyncWebQuery const* AsyncWebRequest::getQuery(const String& name) const {
 #ifdef HANDLE_REQUEST_CONTENT
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-bool AsyncWebRequest::hasParam(const String& name) const {
+bool AsyncWebRequest::hasParam(String const &name) const {
 	return getParam(name) != NULL;
 }
 
-AsyncWebParam const* AsyncWebRequest::getParam(const String& name) const {
+AsyncWebParam const* AsyncWebRequest::getParam(String const &name) const {
 	return _params.get_if([&](AsyncWebParam const &v) {
 		return name.equals(v.name);
 	});
@@ -470,11 +471,11 @@ AsyncWebParam const* AsyncWebRequest::getParam(const String& name) const {
 #endif
 
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-bool AsyncWebRequest::hasUpload(const String& name) const {
+bool AsyncWebRequest::hasUpload(String const &name) const {
 	return getUpload(name) != NULL;
 }
 
-AsyncWebUpload const* AsyncWebRequest::getUpload(const String& name) const {
+AsyncWebUpload const* AsyncWebRequest::getUpload(String const &name) const {
 	return _uploads.get_if([&](AsyncWebUpload const &v) {
 		return name.equals(v.name);
 	});
@@ -484,8 +485,6 @@ AsyncWebUpload const* AsyncWebRequest::getUpload(const String& name) const {
 #endif
 
 void AsyncWebRequest::send(AsyncWebResponse *response) {
-	ESPWS_DEBUGDO(while (_response != NULL) panic());
-
 	if(response == NULL){
 		ESPWS_DEBUG("[%s] WARNING: NULL response\n", _remoteIdent.c_str());
 		_state = REQUEST_ERROR;
@@ -496,49 +495,55 @@ void AsyncWebRequest::send(AsyncWebResponse *response) {
 	_response = response;
 }
 
-AsyncWebResponse * AsyncWebRequest::beginResponse(int code, const String& content,
-	const String& contentType){
+AsyncWebResponse *AsyncWebRequest::beginResponse(int code, String const &content,
+	String const &contentType){
 	return content ? (AsyncWebResponse*) new AsyncStringResponse(code, content, contentType)
 		: new AsyncSimpleResponse(code);
 }
 
-AsyncWebResponse * AsyncWebRequest::beginResponse(FS &fs, const String& path,
-	const String& contentType, int code, bool download){
+AsyncWebResponse *AsyncWebRequest::beginResponse(int code, String &&content,
+	String const &contentType){
+	return content ? (AsyncWebResponse*) new AsyncStringResponse(code, std::move(content), contentType)
+		: new AsyncSimpleResponse(code);
+}
+
+AsyncWebResponse *AsyncWebRequest::beginResponse(FS &fs, String const &path,
+	String const &contentType, int code, bool download){
 	return new AsyncFileResponse(fs, path, contentType, code, download);
 }
 
-AsyncWebResponse * AsyncWebRequest::beginResponse(File content, const String& path,
-	const String& contentType, int code, bool download){
+AsyncWebResponse *AsyncWebRequest::beginResponse(File content, String const &path,
+	String const &contentType, int code, bool download){
 	return new AsyncFileResponse(content, path, contentType, code, download);
 }
 
-AsyncWebResponse * AsyncWebRequest::beginResponse(int code, Stream &content,
-	const String& contentType, size_t len){
+AsyncWebResponse *AsyncWebRequest::beginResponse(int code, Stream &content,
+	String const &contentType, size_t len){
 	return new AsyncStreamResponse(code, content, contentType, len);
 }
 
-AsyncWebResponse * AsyncWebRequest::beginResponse(int code, AwsResponseFiller callback,
-	const String& contentType, size_t len){
+AsyncWebResponse *AsyncWebRequest::beginResponse(int code, AwsResponseFiller callback,
+	String const &contentType, size_t len){
 	return new AsyncCallbackResponse(code, callback, contentType, len);
 }
 
-AsyncWebResponse * AsyncWebRequest::beginChunkedResponse(int code, AwsResponseFiller callback,
-	const String& contentType){
+AsyncWebResponse *AsyncWebRequest::beginChunkedResponse(int code, AwsResponseFiller callback,
+	String const &contentType){
 	return _version? (AsyncWebResponse*) new AsyncChunkedResponse(code, callback, contentType)
 		: new AsyncCallbackResponse(code, callback, contentType, -1);
 }
 
-AsyncPrintResponse * AsyncWebRequest::beginPrintResponse(int code, const String& contentType){
+AsyncPrintResponse * AsyncWebRequest::beginPrintResponse(int code, String const &contentType){
 	return new AsyncPrintResponse(code, contentType);
 }
 
-AsyncWebResponse * AsyncWebRequest::beginResponse_P(int code, PGM_P content,
-	const String& contentType, size_t len){
+AsyncWebResponse *AsyncWebRequest::beginResponse_P(int code, PGM_P content,
+	String const &contentType, size_t len){
 	return new AsyncProgmemResponse(code, content, contentType, len);
 }
 
-void AsyncWebRequest::redirect(const String& url){
-	AsyncWebResponse * response = beginResponse(302);
+void AsyncWebRequest::redirect(String const &url){
+	AsyncWebResponse *response = beginResponse(302);
 	response->addHeader("Location", url.c_str());
 	send(response);
 }

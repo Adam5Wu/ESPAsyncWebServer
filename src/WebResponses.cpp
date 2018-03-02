@@ -52,54 +52,57 @@ AsyncWebResponse::AsyncWebResponse(int code)
 	, _request(NULL)
 {}
 
-const char* AsyncWebResponse::_responseCodeToString(void) {
+PGM_P AsyncWebResponse::_responseCodeToString(void) {
 	switch (_code) {
-		case 100: return "Continue";
-		case 101: return "Switching Protocols";
-		case 200: return "OK";
-		case 201: return "Created";
-		case 202: return "Accepted";
-		case 203: return "Non-Authoritative Information";
-		case 204: return "No Content";
-		case 205: return "Reset Content";
-		case 206: return "Partial Content";
-		case 300: return "Multiple Choices";
-		case 301: return "Moved Permanently";
-		case 302: return "Found";
-		case 303: return "See Other";
-		case 304: return "Not Modified";
-		case 305: return "Use Proxy";
-		case 307: return "Temporary Redirect";
-		case 400: return "Bad Request";
-		case 401: return "Unauthorized";
-		case 402: return "Payment Required";
-		case 403: return "Forbidden";
-		case 404: return "Not Found";
-		case 405: return "Method Not Allowed";
-		case 406: return "Not Acceptable";
-		case 407: return "Proxy Authentication Required";
-		case 408: return "Request Time-out";
-		case 409: return "Conflict";
-		case 410: return "Gone";
-		case 411: return "Length Required";
-		case 412: return "Precondition Failed";
-		case 413: return "Request Entity Too Large";
-		case 414: return "Request-URI Too Large";
-		case 415: return "Unsupported Media Type";
-		case 416: return "Requested range not satisfiable";
-		case 417: return "Expectation Failed";
-		case 500: return "Internal Server Error";
-		case 501: return "Not Implemented";
-		case 502: return "Bad Gateway";
-		case 503: return "Service Unavailable";
-		case 504: return "Gateway Time-out";
-		case 505: return "HTTP Version not supported";
-		default:  return "???";
+		case 100: return PSTR("Continue");
+		case 101: return PSTR("Switching Protocols");
+		case 200: return PSTR("OK");
+		case 201: return PSTR("Created");
+		case 202: return PSTR("Accepted");
+		case 203: return PSTR("Non-Authoritative Information");
+		case 204: return PSTR("No Content");
+		case 205: return PSTR("Reset Content");
+		case 206: return PSTR("Partial Content");
+		case 300: return PSTR("Multiple Choices");
+		case 301: return PSTR("Moved Permanently");
+		case 302: return PSTR("Found");
+		case 303: return PSTR("See Other");
+		case 304: return PSTR("Not Modified");
+		case 305: return PSTR("Use Proxy");
+		case 307: return PSTR("Temporary Redirect");
+		case 400: return PSTR("Bad Request");
+		case 401: return PSTR("Unauthorized");
+		case 402: return PSTR("Payment Required");
+		case 403: return PSTR("Forbidden");
+		case 404: return PSTR("Not Found");
+		case 405: return PSTR("Method Not Allowed");
+		case 406: return PSTR("Not Acceptable");
+		case 407: return PSTR("Proxy Authentication Required");
+		case 408: return PSTR("Request Time-out");
+		case 409: return PSTR("Conflict");
+		case 410: return PSTR("Gone");
+		case 411: return PSTR("Length Required");
+		case 412: return PSTR("Precondition Failed");
+		case 413: return PSTR("Request Entity Too Large");
+		case 414: return PSTR("Request-URI Too Large");
+		case 415: return PSTR("Unsupported Media Type");
+		case 416: return PSTR("Requested range not satisfiable");
+		case 417: return PSTR("Expectation Failed");
+		case 500: return PSTR("Internal Server Error");
+		case 501: return PSTR("Not Implemented");
+		case 502: return PSTR("Bad Gateway");
+		case 503: return PSTR("Service Unavailable");
+		case 504: return PSTR("Gateway Time-out");
+		case 505: return PSTR("HTTP Version not supported");
+		default:  return PSTR("? Unknown Status Code ?");
 	}
 }
 
 void AsyncWebResponse::setCode(int code) {
-	MUSTNOTSTART();
+	if (_started()) {
+		ESPWS_LOG("[%s] ERROR: Response already started, cannot change code!\n");
+		return;
+	}
 	_code = code;
 }
 
@@ -127,17 +130,6 @@ ESPWS_DEBUGDO(const char* AsyncWebResponse::_stateToString(void) const {
 /*
  * Simple (no content) Response
  * */
-
-AsyncSimpleResponse::AsyncSimpleResponse(int code)
-	: AsyncWebResponse(code)
-	//, _status()
-	//, _headers()
-	, _sendbuf(NULL)
-	, _bufLen(0)
-	, _bufSent(0)
-	, _bufPrepared(0)
-	, _inFlightLength(0)
-{}
 
 void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
 	AsyncWebResponse::_respond(request);
@@ -177,7 +169,7 @@ void AsyncSimpleResponse::_assembleHead(void) {
 	_status.concat(' ');
 	_status.concat(_code);
 	_status.concat(' ');
-	_status.concat(_responseCodeToString());
+	_status.concat(FPSTR(_responseCodeToString()));
 	// Generate server header
 	_status.concat("\r\nServer: ",10);
 	_status.concat(_request->_server.VERTOKEN);
@@ -189,7 +181,10 @@ void AsyncSimpleResponse::_assembleHead(void) {
 }
 
 void AsyncSimpleResponse::addHeader(const char *name, const char *value) {
-	MUSTNOTSTART();
+	if (_started()) {
+		ESPWS_LOG("[%s] ERROR: Response already started, cannot add more header!\n");
+		return;
+	}
 
 	_headers.concat(name);
 	_headers.concat(": ",2);
@@ -266,10 +261,17 @@ bool AsyncSimpleResponse::_prepareSendBuf(size_t resShare) {
 void AsyncSimpleResponse::_releaseSendBuf(bool more) {
 	if (_state == RESPONSE_HEADERS) {
 		if (_bufPrepared >= _headers.length()) {
-			_state = RESPONSE_CONTENT;
-			_bufPrepared = 0;
-			// Probe whether there is any content to send
-			_prepareContentSendBuf(0);
+			if (_isHeadOnly()) {
+				// Do not send content body
+				ESPWS_DEBUGVV("[%s] Satisfied head-only request @%d\n",
+					_request->_remoteIdent.c_str(), _bufPrepared);
+				_state = RESPONSE_WAIT_ACK;
+			} else {
+				_state = RESPONSE_CONTENT;
+				_bufPrepared = 0;
+				// Probe whether there is any content to send
+				_prepareContentSendBuf(0);
+			}
 		}
 	}
 	_sendbuf = NULL;
@@ -300,7 +302,7 @@ void AsyncSimpleResponse::_prepareAllocatedSendBuf(uint8_t const *buf, size_t li
  * Basic (with concept of typed/sized content) Response
  * */
 
-AsyncBasicResponse::AsyncBasicResponse(int code, const String& contentType)
+AsyncBasicResponse::AsyncBasicResponse(int code, String const &contentType)
 	: AsyncSimpleResponse(code)
 	, _contentType(contentType)
 	, _contentLength(-1)
@@ -332,12 +334,18 @@ void AsyncBasicResponse::_prepareContentSendBuf(size_t space) {
 }
 
 void AsyncBasicResponse::setContentLength(size_t len) {
-	MUSTNOTSTART();
+	if (_started()) {
+		ESPWS_LOG("[%s] ERROR: Response already started, cannot change content length!\n");
+		return;
+	}
 	_contentLength = len;
 }
 
-void AsyncBasicResponse::setContentType(const String& type) {
-	MUSTNOTSTART();
+void AsyncBasicResponse::setContentType(String const &type) {
+	if (_started()) {
+		ESPWS_LOG("[%s] ERROR: Response already started, cannot change content type!\n");
+		return;
+	}
 	_contentType = type;
 }
 
@@ -345,8 +353,8 @@ void AsyncBasicResponse::setContentType(const String& type) {
  * String Reference Content Response
  * */
 
-AsyncStringRefResponse::AsyncStringRefResponse(int code, const String& content,
-	const String& contentType)
+AsyncStringRefResponse::AsyncStringRefResponse(int code, String const &content,
+	String const &contentType)
 	: AsyncBasicResponse(code, contentType)
 	, _content(content)
 {
@@ -377,7 +385,10 @@ void AsyncStringRefResponse::_prepareContentSendBuf(size_t space) {
  * */
 
 size_t AsyncPrintResponse::write(const uint8_t *data, size_t len){
-	MUSTNOTSTART();
+	if (_started()) {
+		ESPWS_LOG("[%s] ERROR: Response already started, cannot append more data!\n");
+		return 0;
+	}
 	return __content.write(data, len);
 }
 
@@ -387,7 +398,7 @@ size_t AsyncPrintResponse::write(const uint8_t *data, size_t len){
 
 #define STAGEBUF_SIZE 512
 
-AsyncBufferedResponse::AsyncBufferedResponse(int code, const String& contentType)
+AsyncBufferedResponse::AsyncBufferedResponse(int code, String const &contentType)
 	: AsyncBasicResponse(code, contentType), _stashbuf(NULL)
 {}
 
@@ -432,8 +443,8 @@ void AsyncBufferedResponse::_releaseSendBuf(bool more) {
  * File Content Response
  * */
 
-AsyncFileResponse::AsyncFileResponse(File const& content, const String& path,
-	const String& contentType, int code, bool download)
+AsyncFileResponse::AsyncFileResponse(File const& content, String const &path,
+	String const &contentType, int code, bool download)
 	: AsyncBufferedResponse(code, contentType)
 	, _content(content)
 {
@@ -509,7 +520,7 @@ size_t AsyncFileResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
  * */
 
 AsyncStreamResponse::AsyncStreamResponse(int code, Stream &content,
-	const String& contentType, size_t len)
+	String const &contentType, size_t len)
 	: AsyncBufferedResponse(code, contentType)
 	, _content(content)
 {
@@ -533,7 +544,7 @@ size_t AsyncStreamResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
  * */
 
 AsyncProgmemResponse::AsyncProgmemResponse(int code, PGM_P content,
-	const String& contentType, size_t len)
+	String const &contentType, size_t len)
 	: AsyncBufferedResponse(code, contentType)
 	, _content(content)
 {
@@ -554,7 +565,7 @@ size_t AsyncProgmemResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
  * */
 
 AsyncCallbackResponse::AsyncCallbackResponse(int code, AwsResponseFiller callback,
-	const String& contentType, size_t len)
+	String const &contentType, size_t len)
 	: AsyncBufferedResponse(code, contentType)
 	, _callback(callback)
 {
@@ -577,7 +588,7 @@ size_t AsyncCallbackResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
  * */
 
 AsyncChunkedResponse::AsyncChunkedResponse(int code, AwsResponseFiller callback,
-	const String& contentType)
+	String const &contentType)
 	: AsyncBufferedResponse(code, contentType)
 	, _callback(callback)
 {}

@@ -96,12 +96,28 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 						ESPWS_DEBUGV("[%s] Retry authentication\n", _request._remoteIdent.c_str());
 						_requestAuth();
 						if (__reqState() == REQUEST_HEADERS)
-						__reqState(REQUEST_ERROR);
+							__reqState(REQUEST_ERROR);
 						return false;
 					}
-					if (!__setSession(_session)) {
-						ESPWS_DEBUGV("[%s] Decline access\n", _request._remoteIdent.c_str());
-						_rejectAuth(_session);
+					switch (__setSession(_session)) {
+						case ACL_ALLOWED: break;
+						case ACL_NOTALLOWED: {
+							ESPWS_DEBUGV("[%s] Decline access by ACL\n", _request._remoteIdent.c_str());
+							// Order is important
+							_rejectAuth(_session);
+							delete _session;
+							_session = nullptr;
+						} break;
+						default: {
+							ESPWS_DEBUGV("[%s] Decline access due to lack of ACL\n",
+								_request._remoteIdent.c_str());
+							delete _session;
+							_session = nullptr;
+							// Order is important
+							_rejectAuth(_session);
+						}
+					}
+					if (!_session) {
 						if (__reqState() == REQUEST_HEADERS)
 							__reqState(REQUEST_ERROR);
 						return false;
@@ -315,7 +331,7 @@ void AsyncRequestHeadParser::_requestAuth(bool renew) {
 }
 
 void AsyncRequestHeadParser::_rejectAuth(AuthSession *session) {
-	if (session->IDENT != IdentityProvider::ANONYMOUS) {
+	if (!session || session->IDENT != IdentityProvider::ANONYMOUS) {
 		_request.send(403);
 		__reqState(REQUEST_RESPONSE);
 	} else _requestAuth();

@@ -379,9 +379,17 @@ AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodCom
 #endif
 
 AsyncStaticWebHandler& AsyncWebServer::serveStatic(const char* uri, Dir const& dir,
-	const char* indexFile, const char* cache_control){
-	AsyncStaticWebHandler* handler = new AsyncStaticWebHandler(uri, dir, cache_control);
-	handler->setIndexFile(indexFile);
+	const char* indexFile, const char* cache_control
+#ifdef ADVANCED_STATIC_WEBHANDLER
+	, bool write_support
+#endif
+	){
+	AsyncStaticWebHandler* handler = new AsyncStaticWebHandler(uri, dir, cache_control
+#ifdef ADVANCED_STATIC_WEBHANDLER
+		, write_support
+#endif
+	);
+	if (indexFile) handler->setGETIndexFile(indexFile);
 	return addHandler(handler), *handler;
 }
 
@@ -789,15 +797,16 @@ void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest 
 	}
 }
 
-bool AsyncWebServer::_checkACL(AsyncWebRequest const &request, AuthSession* session) const {
+WebACLMatchResult AsyncWebServer::_checkACL(AsyncWebRequest const &request, AuthSession* session) const {
 	HTTPACL* eACL = _ACLs.get_if([&](HTTPACL const &r) {
 		if (r.METHODS & request.method() == 0) return false;
 		return (r.PATH.end()[-1] == '/')? request.url().startsWith(r.PATH)
 			: request.url().equals(r.PATH);
 	});
-	return eACL? eACL->IDENTS.get_if([&](Identity * const &r){
+	if (!eACL) return ACL_NOTFOUND;
+	return eACL->IDENTS.get_if([&](Identity * const &r){
 			return *r == session->IDENT;
-		}) : false;
+		})? ACL_ALLOWED : ACL_NOTALLOWED;
 }
 
 #endif

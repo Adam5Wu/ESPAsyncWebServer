@@ -77,6 +77,7 @@
 #define HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 
 #define HANDLE_AUTHENTICATION
+#define ADVANCED_STATIC_WEBHANDLER
 
 #define HANDLE_WEBDAV
 
@@ -89,7 +90,7 @@
 #define DEFAULT_INDEX_FILE        "index.htm"
 
 #ifdef HANDLE_AUTHENTICATION
-#define DEFAULT_REALM             "ESP8266"
+#define DEFAULT_REALM             "ESPAsyncWeb"
 #define DEFAULT_NONCE_LIFE        300
 #define DEFAULT_NONCE_RENWEAL     30
 
@@ -219,6 +220,15 @@ String urlEncode(char const *buf, size_t len);
 
 typedef std::function<size_t(uint8_t*, size_t, size_t)> AwsResponseFiller;
 
+#ifdef HANDLE_AUTHENTICATION
+typedef enum {
+	ACL_NONE,
+	ACL_NOTFOUND,
+	ACL_NOTALLOWED,
+	ACL_ALLOWED,
+} WebACLMatchResult;
+#endif
+
 class AsyncWebRequest {
 	friend class AsyncWebServer;
 	friend class AsyncWebParser;
@@ -274,7 +284,7 @@ class AsyncWebRequest {
 		void _parseQueries(char *buf);
 
 #ifdef HANDLE_AUTHENTICATION
-		bool _setSession(AuthSession *session);
+		WebACLMatchResult _setSession(AuthSession *session);
 #endif
 
 		template<typename T>
@@ -372,6 +382,8 @@ class AsyncWebRequest {
 
 		AsyncWebResponse *beginResponse(int code, String const &content=String::EMPTY,
 			String const &contentType=String::EMPTY);
+		AsyncWebResponse *beginResponse(int code, String &&content,
+			String const &contentType=String::EMPTY);
 		AsyncWebResponse *beginResponse(FS &fs, String const &path,
 			String const &contentType=String::EMPTY, int code = 200, bool download=false);
 		AsyncWebResponse *beginResponse(File content, String const &path,
@@ -388,6 +400,9 @@ class AsyncWebRequest {
 		inline void send(int code, String const &content=String::EMPTY,
 			String const &contentType=String::EMPTY)
 		{ send(beginResponse(code, content, contentType)); }
+
+		inline void send(int code, String &&content, String const &contentType=String::EMPTY)
+		{ send(beginResponse(code, std::move(content), contentType)); }
 
 		inline void send(FS &fs, String const &path, String const &contentType=String::EMPTY,
 			int code=200, bool download=false)
@@ -430,7 +445,7 @@ class AsyncWebResponse {
 		WebResponseState _state;
 		AsyncWebRequest *_request;
 
-		const char* _responseCodeToString(void);
+		PGM_P _responseCodeToString(void);
 		AsyncWebResponse(int code);
 
 	public:
@@ -443,7 +458,6 @@ class AsyncWebResponse {
 		virtual void _ack(size_t len, uint32_t time) = 0;
 		virtual size_t _process(size_t resShare) = 0;
 
-		inline void MUSTNOTSTART(void) const { ESPWS_DEBUGDO(while (_started()) panic()); }
 		inline bool _started(void) const { return _state > RESPONSE_SETUP; }
 		inline bool _sending(void) const { return _started() && _state < RESPONSE_WAIT_ACK; }
 		inline bool _waitack(void) const { return _state == RESPONSE_WAIT_ACK; }
@@ -570,6 +584,7 @@ struct AsyncWebAuth {
 	ESPWS_DEBUGDO(const char* _stateToString(void) const);
 	ESPWS_DEBUGDO(const char* _typeToString(void) const);
 };
+
 #endif
 
 /*
@@ -699,7 +714,11 @@ class AsyncWebServer {
 
 		AsyncStaticWebHandler& serveStatic(const char* uri, Dir const& dir,
 			const char* indexFile = DEFAULT_INDEX_FILE,
-			const char* cache_control = DEFAULT_CACHE_CTRL);
+			const char* cache_control = DEFAULT_CACHE_CTRL
+#ifdef ADVANCED_STATIC_WEBHANDLER
+			, bool write_support = false
+#endif
+		);
 
 		// Called when handler is not assigned
 		void catchAll(ArRequestHandlerFunction const& onRequest);
@@ -726,7 +745,7 @@ class AsyncWebServer {
 		AsyncWebAuth _parseAuthHeader(String &authHeader, AsyncWebRequest const &request) const;
 		AuthSession* _authSession(AsyncWebAuth &authInfo, AsyncWebRequest const &request) const;
 		void _genAuthHeader(AsyncWebResponse &response, AsyncWebRequest const &request, bool renew) const;
-		bool _checkACL(AsyncWebRequest const &request, AuthSession* session) const;
+		WebACLMatchResult _checkACL(AsyncWebRequest const &request, AuthSession* session) const;
 #endif
 
 		static WebRequestMethod parseMethod(char const *Str);

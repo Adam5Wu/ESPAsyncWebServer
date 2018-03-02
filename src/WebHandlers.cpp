@@ -94,16 +94,26 @@ bool AsyncPathURIWebHandler::_checkContinue(AsyncWebRequest &request, bool conti
  * */
 
 AsyncStaticWebHandler::AsyncStaticWebHandler(String const &path, Dir const& dir,
-	const char* cache_control)
-	: AsyncPathURIWebHandler(path, HTTP_GET), _dir(dir), _cache_control(cache_control)
+	const char* cache_control
+#ifdef ADVANCED_STATIC_WEBHANDLER
+	, bool write_support
+#endif
+):
+	AsyncPathURIWebHandler(path, HTTP_STANDARD_READ
+#ifdef ADVANCED_STATIC_WEBHANDLER
+		| (write_support? HTTP_STANDARD_WRITE : 0)
+#endif
+	)
+	, _dir(dir)
+	, _cache_control(cache_control)
 {
 	// Set defaults
-	//_indexFile = "";
-	_gzLookup = true;
-	_gzFirst = true;
-	//_onIndex = NULL;
-	_onPathNotFound = std::bind(&AsyncStaticWebHandler::_pathNotFound, this, std::placeholders::_1);
-	_onIndexNotFound = std::bind(&AsyncStaticWebHandler::_sendDirList, this, std::placeholders::_1);
+	//_GET_indexFile = "";
+	_GET_gzLookup = true;
+	_GET_gzFirst = true;
+	//_onGETIndex = NULL;
+	_onGETPathNotFound = std::bind(&AsyncStaticWebHandler::_pathNotFound, this, std::placeholders::_1);
+	_onGETIndexNotFound = std::bind(&AsyncStaticWebHandler::_GET_sendDirList, this, std::placeholders::_1);
 	_onDirRedirect = std::bind(&AsyncStaticWebHandler::_redirectDir, this, std::placeholders::_1);
 }
 
@@ -112,16 +122,16 @@ AsyncStaticWebHandler& AsyncStaticWebHandler::setCacheControl(const char* cache_
 	return *this;
 }
 
-AsyncStaticWebHandler& AsyncStaticWebHandler::setIndexFile(const char* filename){
-	if (_onIndex)
+AsyncStaticWebHandler& AsyncStaticWebHandler::setGETIndexFile(const char* filename){
+	if (_onGETIndex)
 		ESPWS_DEBUG("WARNING: Ineffective configuration, index handler in place!\n");
-	_indexFile = filename;
+	_GET_indexFile = filename;
 	return *this;
 }
 
-AsyncStaticWebHandler& AsyncStaticWebHandler::lookupGZ(bool gzLookup, bool gzFirst) {
-	_gzLookup = gzLookup;
-	_gzFirst = gzFirst;
+AsyncStaticWebHandler& AsyncStaticWebHandler::setGETLookupGZ(bool gzLookup, bool gzFirst) {
+	_GET_gzLookup = gzLookup;
+	_GET_gzFirst = gzFirst;
 }
 
 bool AsyncStaticWebHandler::_isInterestingHeader(String const& key) {
@@ -129,6 +139,37 @@ bool AsyncStaticWebHandler::_isInterestingHeader(String const& key) {
 }
 
 void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
+	switch (request.method()) {
+		case HTTP_GET:
+		case HTTP_HEAD:
+			_handleRead(request);
+			break;
+
+#ifdef ADVANCED_STATIC_WEBHANDLER
+		case HTTP_PUT:
+			_handleWrite(request);
+			break;
+
+		case HTTP_DELETE:
+			_handleDelete(request);
+			break;
+#endif
+
+		default:
+			ESPWS_DEBUG("WARNING: Unimplemented method '%s'\n",
+				request._server.mapMethod(request.method()));
+			request.send(501);
+	}
+}
+
+#ifdef ADVANCED_STATIC_WEBHANDLER
+bool AsyncStaticWebHandler::_checkContinue(AsyncWebRequest &request, bool continueHeader) {
+	// TODO
+	return AsyncPathURIWebHandler::_checkContinue(request, continueHeader);
+}
+#endif
+
+void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 	String subpath = request.url().substring(path.length());
 
 	bool ServeDir = false;
@@ -142,7 +183,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 		ServeDir = true;
 		Dir CWD = _dir.openDir(subpath.c_str());
 		if (!CWD) {
-			_onPathNotFound(request);
+			_onGETPathNotFound(request);
 			return;
 		}
 	} else {
@@ -151,14 +192,14 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 
 	if (ServeDir) {
 		// We have a request on a valid dir
-		if (_onIndex) {
+		if (_onGETIndex) {
 			ESPWS_DEBUGVV("[%s] Dir onIndex\n", request._remoteIdent.c_str());
-			_onIndex(request);
+			_onGETIndex(request);
 			return;
 		} else {
-			if (_indexFile) {
+			if (_GET_indexFile) {
 				// Need to look up index file
-				subpath+= _indexFile;
+				subpath+= _GET_indexFile;
 			} else {
 				// No index file lookup
 				subpath.clear(true);
@@ -167,7 +208,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 	}
 
 	File CWF;
-	bool gzEncode = _gzLookup;
+	bool gzEncode = _GET_gzLookup;
 	if (gzEncode) {
 		auto Header = request.getHeader("Accept-Encoding");
 		gzEncode = (Header != NULL) && Header->values.get_if([](String const &v) {
@@ -181,7 +222,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 			request._remoteIdent.c_str(), subpath.c_str());
 		if (gzEncode) {
 			String gzPath = subpath + ".gz";
-			if (_gzFirst) {
+			if (_GET_gzFirst) {
 				ESPWS_DEBUGVV("[%s] GZFirst: '%s'\n",
 					request._remoteIdent.c_str(), gzPath.c_str());
 				CWF = _dir.openFile(gzPath.c_str(), "r");
@@ -209,7 +250,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 			} else {
 				// It is not a file, nor dir
 				ESPWS_DEBUGVV("[%s] File not found\n", request._remoteIdent.c_str());
-				_onPathNotFound(request);
+				_onGETPathNotFound(request);
 				return;
 			}
 		}
@@ -218,7 +259,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 	if (!CWF) {
 		// Dir index file not found
 		ESPWS_DEBUGVV("[%s] Dir index not found\n", request._remoteIdent.c_str());
-		_onIndexNotFound(request);
+		_onGETIndexNotFound(request);
 		return;
 	}
 
@@ -247,7 +288,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 	request.send(response);
 }
 
-void AsyncStaticWebHandler::_sendDirList(AsyncWebRequest &request) {
+void AsyncStaticWebHandler::_GET_sendDirList(AsyncWebRequest &request) {
 	String subpath = request.url().substring(path.length());
 	Dir CWD = subpath? _dir.openDir(subpath.c_str()) : _dir;
 	if (!CWD) {
@@ -273,7 +314,7 @@ void AsyncStaticWebHandler::_sendDirList(AsyncWebRequest &request) {
 		OvfBuf.concat(F("<tr><td><a href='..'>(Parent directory)</a></td><td></td><td></td></tr>"));
 	CWD.next(true);
 
-	request.sendChunked(200,
+	auto response = request.beginChunkedResponse(200,
 		[=,&request](uint8_t* buf, size_t len, size_t offset) mutable -> size_t {
 			size_t outLen = 0;
 			if (OvfBuf) {
@@ -319,8 +360,19 @@ void AsyncStaticWebHandler::_sendDirList(AsyncWebRequest &request) {
 			}
 			return outLen;
 		}, "text/html");
+	request.send(response);
 }
 
 void AsyncStaticWebHandler::_pathNotFound(AsyncWebRequest &request) {
 	request.send(404); // File not found
+}
+
+void AsyncStaticWebHandler::_handleWrite(AsyncWebRequest &request) {
+	// TODO
+	request.send(501);
+}
+
+void AsyncStaticWebHandler::_handleDelete(AsyncWebRequest &request) {
+	// TODO
+	request.send(501);
 }

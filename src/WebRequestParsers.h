@@ -61,7 +61,8 @@ class AsyncWebParser {
 		{ _request._contentLength = newContentLength; }
 
 #ifdef HANDLE_AUTHENTICATION
-		bool __setSession(AuthSession* session) { return _request._setSession(session); }
+		WebACLMatchResult __setSession(AuthSession* session)
+		{ return _request._setSession(session); }
 #endif
 
 		void __addHeader(String const &key, String const &value) {
