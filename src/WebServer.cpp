@@ -86,7 +86,7 @@ extern "C" {
 class AnonymousAccountAuthority : public DummyIdentityProvider, public BasicAuthorizer {
 	public:
 		virtual Identity& getIdentity(String const& identName) const override
-		{ return identName.equalsIgnoreCase(ANONYMOUS.ID)? ANONYMOUS : UNKNOWN_IDENTITY; }
+		{ return identName.equalsIgnoreCase(ANONYMOUS.ID)? ANONYMOUS : UNKNOWN; }
 		virtual bool Authenticate(Credential& cred) override
 		{ return cred.IDENT == ANONYMOUS; }
 } ANONYMOUS_AUTH;
@@ -110,8 +110,8 @@ AsyncWebServer::AsyncWebServer(uint16_t port)
 	, _Realm(DEFAULT_REALM)
 	, _Secret(system_get_chip_id(), 16)
 	, _NonceLife(DEFAULT_NONCE_LIFE)
-	, _DAuthRecs(NULL)
-	, _ACLs(NULL)
+	, _DAuthRecs(nullptr)
+	, _ACLs(nullptr)
 #endif
 	//, _catchAllHandler()
 {
@@ -186,7 +186,7 @@ WebRequestMethodComposite AsyncWebServer::parseMethods(char *Str) {
 		char const* Ptr = Str;
 		while (*Str && *Str !=',') Str++;
 		if (*Str) *Str++ = '\0';
-		else Str = NULL;
+		else Str = nullptr;
 
 		if (Ptr[0] == '$') {
 			WebRequestMethodComposite Group = 0;
@@ -307,9 +307,9 @@ void AsyncWebServer::loadACL(Stream &source) {
 #endif
 
 void AsyncWebServer::_handleClient(AsyncClient* c) {
-	if(c == NULL) return;
+	if(c == nullptr) return;
 	AsyncWebRequest *r = new AsyncWebRequest(*this, *c);
-	if(r == NULL) delete c;
+	if(r == nullptr) delete c;
 }
 
 #if ASYNC_TCP_SSL_ENABLED
@@ -428,16 +428,16 @@ void AsyncWebServer::catchAll(ArUploadDataHandlerFunction const& onUploadData)
 
 void AsyncWebServer::reset(void) {
 	//remove all writers and handlers, including catch-all handlers
-	_catchAllHandler->onRequest = NULL;
+	_catchAllHandler->onRequest = nullptr;
 #ifdef HANDLE_REQUEST_CONTENT
-	_catchAllHandler->onBody = NULL;
+	_catchAllHandler->onBody = nullptr;
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-	_catchAllHandler->onParamData = NULL;
+	_catchAllHandler->onParamData = nullptr;
 #endif
 
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-	_catchAllHandler->onUploadData = NULL;
+	_catchAllHandler->onUploadData = nullptr;
 #endif
 
 #endif
@@ -484,7 +484,7 @@ String calcNonce(String const &IP, time_t TS, String const &Secret) {
 
 AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 	AsyncWebRequest const &request) const {
-	time_t CurTS = time(NULL);
+	time_t CurTS = time(nullptr);
 	// Cleanup stale records
 	LinkedList<NONCEREC>* DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
 	while (DAuthRecs->remove_if([&](NONCEREC const&r){
@@ -764,7 +764,7 @@ AuthSession* AsyncWebServer::_authSession(AsyncWebAuth &authInfo, AsyncWebReques
 			ESPWS_DEBUG("[%s] ERROR: Unrecognised authorization type '%s'\n",
 				request._remoteIdent.c_str(), authInfo._typeToString());
 	}
-	return NULL;
+	return nullptr;
 }
 
 void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest const &request,
@@ -777,7 +777,7 @@ void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest 
 		}
 
 		if (_AuthAcc & AUTH_DIGEST) {
-			time_t ExpTS = time(NULL) + _NonceLife;
+			time_t ExpTS = time(nullptr) + _NonceLife;
 			String NewNonce = calcNonce(request._client.remoteIP().toString(), ExpTS, _Secret);
 			String Message("Digest realm=");
 			putQuotedToken(_Realm, Message, ',', false, true);

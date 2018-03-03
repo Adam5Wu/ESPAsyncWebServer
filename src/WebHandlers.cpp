@@ -111,7 +111,7 @@ AsyncStaticWebHandler::AsyncStaticWebHandler(String const &path, Dir const& dir,
 	//_GET_indexFile = "";
 	_GET_gzLookup = true;
 	_GET_gzFirst = true;
-	//_onGETIndex = NULL;
+	//_onGETIndex = nullptr;
 	_onGETPathNotFound = std::bind(&AsyncStaticWebHandler::_pathNotFound, this, std::placeholders::_1);
 	_onGETIndexNotFound = std::bind(&AsyncStaticWebHandler::_GET_sendDirList, this, std::placeholders::_1);
 	_onDirRedirect = std::bind(&AsyncStaticWebHandler::_redirectDir, this, std::placeholders::_1);
@@ -211,9 +211,9 @@ void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 	bool gzEncode = _GET_gzLookup;
 	if (gzEncode) {
 		auto Header = request.getHeader("Accept-Encoding");
-		gzEncode = (Header != NULL) && Header->values.get_if([](String const &v) {
+		gzEncode = (Header != nullptr) && Header->values.get_if([](String const &v) {
 			return v.indexOf("gzip")>=0;
-		}) != NULL;
+		}) != nullptr;
 	}
 
 	// Handle file request path
@@ -270,7 +270,7 @@ void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 		size_t fs = CWF.size();
 		etag = "W/\""+String(fs)+'@'+String(fm,16)+'"';
 		auto Header = request.getHeader("If-None-Match");
-		if (Header != NULL && Header->values.contains(etag)) {
+		if (Header != nullptr && Header->values.contains(etag)) {
 			request.send(304); // Not modified
 			return;
 		}

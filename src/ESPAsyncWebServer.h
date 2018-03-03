@@ -481,14 +481,14 @@ class AsyncWebFilterable {
 		LinkedList<ArRequestFilterFunction> _filters;
 
 	public:
-		AsyncWebFilterable(void) : _filters(NULL) {}
+		AsyncWebFilterable(void) : _filters(nullptr) {}
 		virtual ~AsyncWebFilterable() {}
 
 		void addFilter(ArRequestFilterFunction const &fn) { _filters.append(fn); }
 		bool _filter(AsyncWebRequest &request) const {
 			return _filters.get_if([&](ArRequestFilterFunction const& f){
 				return !f(request);
-			}) == NULL;
+			}) == nullptr;
 		}
 };
 
@@ -644,8 +644,8 @@ class AsyncWebServer {
 			WebRequestMethodComposite METHODS;
 			LinkedList<Identity*> IDENTS;
 
-			HTTPACL(String const &p): PATH(p), METHODS(HTTP_NONE), IDENTS(NULL) {}
-			HTTPACL(String &&p): PATH(std::move(p)), METHODS(HTTP_NONE), IDENTS(NULL) {}
+			HTTPACL(String const &p): PATH(p), METHODS(HTTP_NONE), IDENTS(nullptr) {}
+			HTTPACL(String &&p): PATH(std::move(p)), METHODS(HTTP_NONE), IDENTS(nullptr) {}
 		};
 		LinkedList<HTTPACL> _ACLs;
 		void loadACL(Stream &source);

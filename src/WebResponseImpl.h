@@ -34,7 +34,7 @@ class AsyncSimpleResponse: public AsyncWebResponse {
 	protected:
 		String _headers;
 
-		uint8_t const *_sendbuf = NULL;
+		uint8_t const *_sendbuf = nullptr;
 		size_t _bufLen = 0;
 		size_t _bufSent = 0;
 

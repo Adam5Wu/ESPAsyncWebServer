@@ -41,7 +41,7 @@ String urlDecode(char const *buf, size_t len) {
 		if ((*buf == '%') && buf[1] && buf[2]){
 			temp[0] = *++buf;
 			temp[1] = *++buf;
-			Ret.concat((char)strtol(temp, NULL, 16));
+			Ret.concat((char)strtol(temp, nullptr, 16));
 		} else if (*buf == '+') {
 			Ret.concat(' ');
 		} else {
@@ -83,7 +83,7 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 		bool running = false;
 		uint8_t idleCnt = 0;
 
-		ItemType *_cur = NULL;
+		ItemType *_cur = nullptr;
 
 		void startTimer(void) {
 			if (!running) {
@@ -148,9 +148,9 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
 	: _server(s)
 	, _client(c)
-	, _handler(NULL)
-	, _response(NULL)
-	, _parser(NULL)
+	, _handler(nullptr)
+	, _response(nullptr)
+	, _parser(nullptr)
 	, _state(REQUEST_SETUP)
 	, _keepAlive(false)
 	, _version(0)
@@ -160,16 +160,16 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
 	//, _contentType()
 	, _contentLength(0)
 #ifdef HANDLE_AUTHENTICATION
-	, _session(NULL)
+	, _session(nullptr)
 #endif
-	, _headers(NULL)
-	, _queries(NULL)
+	, _headers(nullptr)
+	, _queries(nullptr)
 #ifdef HANDLE_REQUEST_CONTENT
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-	, _params(NULL)
+	, _params(nullptr)
 #endif
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-	, _uploads(NULL)
+	, _uploads(nullptr)
 #endif
 #endif
 	ESPWS_DEBUGDO(, _remoteIdent(c.remoteIP().toString()+':'+c.remotePort()))
@@ -224,7 +224,7 @@ ESPWS_DEBUGDO(const char* AsyncWebRequest::_stateToString(void) const {
 #ifdef HANDLE_AUTHENTICATION
 WebACLMatchResult AsyncWebRequest::_setSession(AuthSession *session) {
 	delete _session;
-	_session = NULL;
+	_session = nullptr;
 
 	WebACLMatchResult Ret = ACL_NONE;
 	if (session) {
@@ -237,11 +237,11 @@ WebACLMatchResult AsyncWebRequest::_setSession(AuthSession *session) {
 
 void AsyncWebRequest::_recycleClient(void) {
 	delete _response;
-	_handler = NULL;
-	_response = NULL;
+	_handler = nullptr;
+	_response = nullptr;
 
 #ifdef HANDLE_AUTHENTICATION
-	_setSession(NULL);
+	_setSession(nullptr);
 #endif
 	// Note: Enable the following block of CGI-like features are to be implemented
 /*
@@ -331,7 +331,7 @@ void AsyncWebRequest::_onTimeout(uint32_t time){
 
 void AsyncWebRequest::_onDisconnect(){
 	ESPWS_DEBUGV("[%s] DISCONNECT, response state: %s\n", _remoteIdent.c_str(),
-							_response? _response->_stateToString() : "NULL");
+							_response? _response->_stateToString() : "nullptr");
 	_state = REQUEST_FINALIZE;
 }
 
@@ -437,7 +437,7 @@ void AsyncWebRequest::_parseQueries(char *buf){
 }
 
 bool AsyncWebRequest::hasHeader(String const &name) const {
-	return getHeader(name) != NULL;
+	return getHeader(name) != nullptr;
 }
 
 AsyncWebHeader const* AsyncWebRequest::getHeader(String const &name) const {
@@ -447,7 +447,7 @@ AsyncWebHeader const* AsyncWebRequest::getHeader(String const &name) const {
 }
 
 bool AsyncWebRequest::hasQuery(String const &name) const {
-	return getQuery(name) != NULL;
+	return getQuery(name) != nullptr;
 }
 
 AsyncWebQuery const* AsyncWebRequest::getQuery(String const &name) const {
@@ -460,7 +460,7 @@ AsyncWebQuery const* AsyncWebRequest::getQuery(String const &name) const {
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 bool AsyncWebRequest::hasParam(String const &name) const {
-	return getParam(name) != NULL;
+	return getParam(name) != nullptr;
 }
 
 AsyncWebParam const* AsyncWebRequest::getParam(String const &name) const {
@@ -472,7 +472,7 @@ AsyncWebParam const* AsyncWebRequest::getParam(String const &name) const {
 
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 bool AsyncWebRequest::hasUpload(String const &name) const {
-	return getUpload(name) != NULL;
+	return getUpload(name) != nullptr;
 }
 
 AsyncWebUpload const* AsyncWebRequest::getUpload(String const &name) const {
@@ -485,8 +485,8 @@ AsyncWebUpload const* AsyncWebRequest::getUpload(String const &name) const {
 #endif
 
 void AsyncWebRequest::send(AsyncWebResponse *response) {
-	if(response == NULL){
-		ESPWS_DEBUG("[%s] WARNING: NULL response\n", _remoteIdent.c_str());
+	if(response == nullptr){
+		ESPWS_DEBUG("[%s] WARNING: nullptr response\n", _remoteIdent.c_str());
 		_state = REQUEST_ERROR;
 		return;
 	}

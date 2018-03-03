@@ -49,7 +49,7 @@ String const& GetPlatformAnnotation(void) {
 AsyncWebResponse::AsyncWebResponse(int code)
 	: _code(code)
 	, _state(RESPONSE_SETUP)
-	, _request(NULL)
+	, _request(nullptr)
 {}
 
 PGM_P AsyncWebResponse::_responseCodeToString(void) {
@@ -135,10 +135,16 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
 	AsyncWebResponse::_respond(request);
 
 	if (_state == RESPONSE_SETUP) {
+#ifndef HANDLE_AUTHENTICATION
 		ESPWS_LOG("[%s:%d] %d %s %s %s\n",
 			request._client.remoteIP().toString().c_str(), request._client.remotePort(),
 			_code, request.methodToString(), request.host().c_str(), request.url().c_str());
-
+#else
+		ESPWS_LOG("[%s:%d (%s)] %d %s %s %s\n",
+			request._client.remoteIP().toString().c_str(), request._client.remotePort(),
+			request.session() ? request.session()->IDENT.ID.c_str() : UNKNOWN_ID,
+			_code, request.methodToString(), request.host().c_str(), request.url().c_str());
+#endif
 		_assembleHead();
 		_state = RESPONSE_HEADERS;
 		// ASSUMPTION: status line is ALWAYS shorter than TCP_SND_BUF
@@ -274,7 +280,7 @@ void AsyncSimpleResponse::_releaseSendBuf(bool more) {
 			}
 		}
 	}
-	_sendbuf = NULL;
+	_sendbuf = nullptr;
 }
 
 void AsyncSimpleResponse::_prepareHeadSendBuf(size_t space) {
@@ -399,7 +405,7 @@ size_t AsyncPrintResponse::write(const uint8_t *data, size_t len){
 #define STAGEBUF_SIZE 512
 
 AsyncBufferedResponse::AsyncBufferedResponse(int code, String const &contentType)
-	: AsyncBasicResponse(code, contentType), _stashbuf(NULL)
+	: AsyncBasicResponse(code, contentType), _stashbuf(nullptr)
 {}
 
 void AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
@@ -428,7 +434,7 @@ void AsyncBufferedResponse::_releaseSendBuf(bool more) {
 	}
 	if (!more) {
 		free((void*)_stashbuf);
-		_stashbuf = NULL;
+		_stashbuf = nullptr;
 
 		if (_state == RESPONSE_CONTENT) {
 			if (_bufPrepared >= _contentLength) {
@@ -436,7 +442,7 @@ void AsyncBufferedResponse::_releaseSendBuf(bool more) {
 			}
 		}
 	}
-	_sendbuf = NULL;
+	_sendbuf = nullptr;
 }
 
 /*

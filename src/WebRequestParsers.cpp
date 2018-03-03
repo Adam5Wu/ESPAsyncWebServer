@@ -84,38 +84,35 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 #ifdef HANDLE_AUTHENTICATION
 					// Handle authentication
 					auto _session = _handleAuth();
-					if (!_session) {
-						ESPWS_DEBUGV("[%s] No session\n", _request._remoteIdent.c_str());
-						if (__reqState() == REQUEST_HEADERS)
-							__reqState(REQUEST_ERROR);
-						return false;
-					}
-					ESPWS_DEBUGV("[%s] Session %s\n",
-						_request._remoteIdent.c_str(), _session->toString().c_str());
-					if (!_session->isAuthorized()) {
-						ESPWS_DEBUGV("[%s] Retry authentication\n", _request._remoteIdent.c_str());
-						_requestAuth();
-						if (__reqState() == REQUEST_HEADERS)
-							__reqState(REQUEST_ERROR);
-						return false;
-					}
-					switch (__setSession(_session)) {
-						case ACL_ALLOWED: break;
-						case ACL_NOTALLOWED: {
-							ESPWS_DEBUGV("[%s] Decline access by ACL\n", _request._remoteIdent.c_str());
-							// Order is important
-							_rejectAuth(_session);
+					if (_session) {
+						ESPWS_DEBUGV("[%s] Session %s\n",
+							_request._remoteIdent.c_str(), _session->toString().c_str());
+						if (!_session->isAuthorized()) {
+							ESPWS_DEBUGV("[%s] Retry authentication\n", _request._remoteIdent.c_str());
+							_requestAuth();
 							delete _session;
 							_session = nullptr;
-						} break;
-						default: {
-							ESPWS_DEBUGV("[%s] Decline access due to lack of ACL\n",
-								_request._remoteIdent.c_str());
-							delete _session;
-							_session = nullptr;
-							// Order is important
-							_rejectAuth(_session);
 						}
+						switch (__setSession(_session)) {
+							case ACL_ALLOWED: break;
+							case ACL_NOTALLOWED: {
+								ESPWS_DEBUGV("[%s] Decline access by ACL\n", _request._remoteIdent.c_str());
+								// Order is important
+								_rejectAuth(_session);
+								delete _session;
+								_session = nullptr;
+							} break;
+							default: {
+								ESPWS_DEBUGV("[%s] Decline access due to lack of ACL\n",
+									_request._remoteIdent.c_str());
+								delete _session;
+								_session = nullptr;
+								// Order is important
+								_rejectAuth(_session);
+							}
+						}
+					} else {
+						ESPWS_DEBUGV("[%s] No session\n", _request._remoteIdent.c_str());
 					}
 					if (!_session) {
 						if (__reqState() == REQUEST_HEADERS)
@@ -128,7 +125,7 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 #ifdef HANDLE_REQUEST_CONTENT
 						if (_request.contentLength()) {
 							// Switch parser
-							AsyncWebParser* newParser = NULL;
+							AsyncWebParser* newParser = nullptr;
 							for (auto& item : BodyParserRegistry) {
 								if (newParser = item(_request)) break;
 							}
@@ -148,7 +145,7 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 #endif
 						{
 							__reqState(REQUEST_RECEIVED);
-							__reqParser(NULL);
+							__reqParser(nullptr);
 						}
 						// We are done!
 						delete this;
@@ -320,7 +317,7 @@ AuthSession* AsyncRequestHeadParser::_handleAuth(void) {
 			ESPWS_DEBUG("[%s] WARNING: Unrecognised authorization header parsing state '%s'\n",
 				_request._remoteIdent.c_str(), AuthInfo._stateToString());
 	}
-	return NULL;
+	return nullptr;
 }
 
 void AsyncRequestHeadParser::_requestAuth(bool renew) {
@@ -353,7 +350,7 @@ void AsyncRequestPassthroughContentParser::_parse(void *&buf, size_t &len) {
 
 		if (_curOfs >= _request.contentLength()) {
 			__reqState(REQUEST_RECEIVED);
-			__reqParser(NULL);
+			__reqParser(nullptr);
 			// We are done!
 			delete this;
 		}
@@ -383,7 +380,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 				if (callback) callback();
 				if (__reqState() == REQUEST_BODY) {
 					__reqState(REQUEST_RECEIVED);
-					__reqParser(NULL);
+					__reqParser(nullptr);
 					// We are done!
 					delete this;
 				}
@@ -514,7 +511,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 							break;
 					}
 				}
-				if (_checkReachEnd(NULL)) return;
+				if (_checkReachEnd(nullptr)) return;
 				_temp.clear();
 			}
 		}
@@ -553,7 +550,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 				if (callback) callback();
 				if (__reqState() == REQUEST_BODY) {
 					__reqState(REQUEST_RECEIVED);
-					__reqParser(NULL);
+					__reqParser(nullptr);
 					// We are done!
 					delete this;
 				}
@@ -779,7 +776,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 								len-= i;
 							} else {
 								_parseOfs = i;
-								buf = NULL;
+								buf = nullptr;
 							}
 						}
 					} break;
@@ -792,7 +789,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 							if (++i >= len) {
 								// No new line, wait for next buffer
 								_parseOfs = i;
-								buf = NULL;
+								buf = nullptr;
 								break;
 							}
 						}
@@ -865,17 +862,17 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 		}
 };
 
-LinkedList<ArBodyParserMaker> BodyParserRegistry(NULL, {
+LinkedList<ArBodyParserMaker> BodyParserRegistry(nullptr, {
 #ifdef HANDLE_REQUEST_CONTENT_SIMPLEFORM
 	[](AsyncWebRequest &request) {
 		return request.contentType("application/x-www-form-urlencoded")?
-			new AsyncSimpleFormContentParser(request): NULL;
+			new AsyncSimpleFormContentParser(request): nullptr;
 	},
 #endif
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 	[](AsyncWebRequest &request) {
 		return request.contentType().startsWith("multipart/form-data;", 20, 0, true)?
-			new AsyncRequestMultipartFormContentParser(request): NULL;
+			new AsyncRequestMultipartFormContentParser(request): nullptr;
 	},
 #endif
 });
