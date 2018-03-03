@@ -444,9 +444,13 @@ void AsyncWebServer::reset(void) {
 }
 
 #ifdef HANDLE_AUTHENTICATION
-WebAuthTypeComposite const AUTH_ANY = AUTH_REQUIRE|AUTH_NONE;
+#ifdef AUTHENTICATION_DISABLE_BASIC
+WebAuthTypeComposite const AUTH_REQUIRE = AUTH_DIGEST;
+#else
 WebAuthTypeComposite const AUTH_REQUIRE = AUTH_BASIC|AUTH_DIGEST;
+#endif
 WebAuthTypeComposite const AUTH_SECURE = AUTH_DIGEST;
+WebAuthTypeComposite const AUTH_ANY = AUTH_REQUIRE|AUTH_NONE;
 
 ESPWS_DEBUGDO(const char* AsyncWebAuth::_stateToString(void) const {
 	switch (State) {
@@ -486,7 +490,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 	AsyncWebRequest const &request) const {
 	time_t CurTS = time(nullptr);
 	// Cleanup stale records
-	LinkedList<NONCEREC>* DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
+	auto DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
 	while (DAuthRecs->remove_if([&](NONCEREC const&r){
 		return r.EXPIRY+DEFAULT_NONCE_RENWEAL < CurTS;
 	}));
@@ -751,15 +755,26 @@ AuthSession* AsyncWebServer::_authSession(AsyncWebAuth &authInfo, AsyncWebReques
 			return new AuthSession(_Auth->getSession(
 				Credential(IdentityProvider::ANONYMOUS, EA_SECRET_NONE, String())));
 		case AUTH_BASIC:
+#ifdef AUTHENTICATION_DISABLE_BASIC
+			ESPWS_DEBUG("[%s] ERROR: Authorization type '%s' has been disabled!\n",
+				request._remoteIdent.c_str(), authInfo._typeToString());
+			break;
+#else
 			ESPWS_DEBUGVV("[%s] Authorizing basic session...\n",
 				request._remoteIdent.c_str());
 			return new AuthSession(_Auth->getSession(authInfo.UserName,
 				EA_SECRET_PLAINTEXT, std::move(authInfo.Secret)));
+#endif
 		case AUTH_DIGEST:
 			ESPWS_DEBUGVV("[%s] Authorizing digest session...\n",
 				request._remoteIdent.c_str());
 			return new AuthSession(_Auth->getSession(authInfo.UserName,
-				EA_SECRET_HTTPDIGESTAUTH_MD5, std::move(authInfo.Secret)));
+#ifdef AUTHENTICATION_ENABLE_SESS
+				EA_SECRET_HTTPDIGESTAUTH_MD5SESS,
+#else
+				EA_SECRET_HTTPDIGESTAUTH_MD5,
+#endif
+				std::move(authInfo.Secret)));
 		default:
 			ESPWS_DEBUG("[%s] ERROR: Unrecognised authorization type '%s'\n",
 				request._remoteIdent.c_str(), authInfo._typeToString());
@@ -771,9 +786,14 @@ void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest 
 	bool renew) const {
 	if (_AuthAcc & AUTH_REQUIRE != 0) {
 		if (_AuthAcc & AUTH_BASIC) {
+#ifdef AUTHENTICATION_DISABLE_BASIC
+			ESPWS_DEBUGV("[%s] WARNING: Basic authentication has been disabled!\n",
+				request._remoteIdent.c_str());
+#else
 			String Message("Basic realm=");
 			putQuotedToken(_Realm, Message, ',', false, true);
 			response.addHeader("WWW-Authenticate", Message.c_str());
+#endif
 		}
 
 		if (_AuthAcc & AUTH_DIGEST) {
@@ -785,10 +805,18 @@ void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest 
 			putQuotedToken("auth", Message, ',', false, true);
 			Message.concat(",nonce=");
 			putQuotedToken(NewNonce, Message, ',', false, true);
+#ifdef AUTHENTICATION_ENABLE_SESS
+			Message.concat(",algorithm=MD5-sess");
+#endif
 			if (renew) Message.concat(",stale=true");
 			response.addHeader("WWW-Authenticate", Message.c_str());
-			LinkedList<NONCEREC>* DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
+			auto DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
 			DAuthRecs->append(NONCEREC(std::move(NewNonce), ExpTS));
+			if (DAuthRecs->length() > DEFAULT_NONCE_MAXIMUM) {
+				ESPWS_DEBUG("[%s] WARNING: Nonce buffer overflow, retiring oldest nonce...\n",
+					request._remoteIdent.c_str());
+				DAuthRecs->remove_nth(0);
+			}
 		}
 	} else {
 		// No known authentication required

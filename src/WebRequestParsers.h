@@ -52,6 +52,9 @@ class AsyncWebParser {
 			if (newAccept) _request._accept = std::move(newAccept);
 			else { _request._accept.clear(true); }
 		}
+#ifdef HANDLE_WEBDAV
+		void __setTranslate(bool state) { _request._translate = state; }
+#endif
 		void __setKeepAlive(bool state) { _request._keepAlive = state; }
 		void __setContentType(String &newContentType)
 		{ _request._contentType = std::move(newContentType); }

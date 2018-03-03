@@ -167,7 +167,7 @@ void AsyncSimpleResponse::_assembleHead(void) {
 		addHeader("Connection", "keep-alive");
 	}
 
-	ESPWS_DEBUGVV("[%s]--- Headers Start ---\n%s[%s]--- Headers End ---\n",
+	ESPWS_DEBUGVV("[%s]--- Headers Start ---\n%s--- Headers End ---\n",
 		_request->_remoteIdent.c_str(), _headers.c_str(), _request->_remoteIdent.c_str());
 
 	_status.concat("HTTP/1.",7);

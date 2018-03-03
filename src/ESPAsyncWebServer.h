@@ -77,6 +77,9 @@
 #define HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 
 #define HANDLE_AUTHENTICATION
+#define AUTHENTICATION_DISABLE_BASIC
+#define AUTHENTICATION_ENABLE_SESS
+
 #define ADVANCED_STATIC_WEBHANDLER
 
 #define HANDLE_WEBDAV
@@ -93,6 +96,7 @@
 #define DEFAULT_REALM             "ESPAsyncWeb"
 #define DEFAULT_NONCE_LIFE        300
 #define DEFAULT_NONCE_RENWEAL     30
+#define DEFAULT_NONCE_MAXIMUM     20
 
 #include "ESPEasyAuth.h"
 #endif
@@ -241,7 +245,6 @@ class AsyncWebRequest {
 
 		WebServerRequestState _state;
 
-		bool _keepAlive;
 		uint8_t _version;
 		WebRequestMethod _method;
 		String _url;
@@ -253,6 +256,11 @@ class AsyncWebRequest {
 		String _userAgent;
 		String _contentType;
 		size_t _contentLength;
+
+		bool _keepAlive;
+#ifdef HANDLE_WEBDAV
+		bool _translate;
+#endif
 
 #ifdef HANDLE_AUTHENTICATION
 		AuthSession* _session;
@@ -326,7 +334,11 @@ class AsyncWebRequest {
 		String const &host(void) const { return _host; }
 		String const &accept(void) const { return _accept; }
 		String const &userAgent(void) const { return _userAgent; }
+
 		bool keepAlive(void) const { return _keepAlive; }
+#ifdef HANDLE_WEBDAV
+		bool translate(void) const { return _translate; }
+#endif
 
 		String const &contentType(void) const { return _contentType; }
 		bool contentType(String const &type) const { return _contentType.equalsIgnoreCase(type); }

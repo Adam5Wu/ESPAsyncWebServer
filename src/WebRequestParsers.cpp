@@ -209,8 +209,14 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 		__setAccept(value);
 		ESPWS_DEBUGV("[%s] + Accept: '%s'\n",
 			_request._remoteIdent.c_str(), _request.accept().c_str());
+#ifdef HANDLE_WEBDAV
+	} else if (_temp.equalsIgnoreCase("Translate")) {
+		__setTranslate(value.equalsIgnoreCase("T"));
+		ESPWS_DEBUGV("[%s] + Translate: %s\n",
+		_request._remoteIdent.c_str(), _request.translate()? "True": "False");
+#endif
 	} else if (_temp.equalsIgnoreCase("Connection")) {
-		ESPWS_DEBUGV("[%s] + Connection: '%s'\n",
+		ESPWS_DEBUGV("[%s] + Connection: %s\n",
 			_request._remoteIdent.c_str(), value.c_str());
 		if (value.equalsIgnoreCase("keep-alive")) {
 			__setKeepAlive(true);
@@ -306,12 +312,14 @@ AuthSession* AsyncRequestHeadParser::_handleAuth(void) {
 		case AUTHHEADER_PREAUTH:
 			return _request._server._authSession(AuthInfo, _request);
 
-		case AUTHHEADER_UNACCEPT:
-		case AUTHHEADER_MALFORMED:
 		case AUTHHEADER_EXPIRED:
 		case AUTHHEADER_NORECORD:
 			_requestAuth(AuthInfo.State == AUTHHEADER_EXPIRED);
 			break;
+
+		case AUTHHEADER_UNACCEPT:
+		case AUTHHEADER_MALFORMED:
+			return new AuthSession(IdentityProvider::UNKNOWN, nullptr);
 
 		default:
 			ESPWS_DEBUG("[%s] WARNING: Unrecognised authorization header parsing state '%s'\n",
