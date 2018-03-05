@@ -33,7 +33,8 @@ extern "C" {
 }
 
 String urlDecode(char const *buf, size_t len) {
-	char temp[] = "xx";
+	char temp[3];
+	temp[2] = '\0';
 
 	String Ret;
 	Ret.reserve(len);
@@ -74,10 +75,16 @@ String urlEncode(char const *buf, size_t len) {
 #define SCHED_SHARE    TCP_SND_BUF
 // Minimal heap available before scheduling a response processing
 // 4K = Flash physical sector size
-// 2K = Misc heap uses
-#define SCHED_MINHEAP  (4096+2048+SCHED_SHARE)
+// 4K = Misc heap uses
+#define SCHED_MINHEAP  (4096+4096+SCHED_SHARE)
 
-class RequestScheduler : private LinkedList<AsyncWebRequest*> {
+#ifdef PURGE_TIMEWAIT
+struct tcp_pcb;
+extern struct tcp_pcb* tcp_tw_pcbs;
+extern "C" void tcp_abort (struct tcp_pcb* pcb);
+#endif
+
+static class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 	protected:
 		os_timer_t timer = {0};
 		bool running = false;
@@ -89,14 +96,20 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 			if (!running) {
 				running = true;
 				os_timer_arm(&timer, SCHED_RES, true);
-				ESPWS_DEBUGVV_S(T,"<Scheduler> Start\n");
+				ESPWS_DEBUGVV_S(L,"<Scheduler> Start\n");
 			}
 		}
 		void stopTimer(void) {
 			if (running) {
 				running = false;
 				os_timer_disarm(&timer);
-				ESPWS_DEBUGVV_S(T,"<Scheduler> Stop\n");
+				ESPWS_DEBUGVV_S(L,"<Scheduler> Stop\n");
+#ifdef PURGE_TIMEWAIT
+				// Cleanup time-wait connections to conserve resources
+				while (tcp_tw_pcbs) {
+					tcp_abort(tcp_tw_pcbs);
+				}
+#endif
 			}
 		}
 
@@ -105,19 +118,19 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 
 	public:
 		RequestScheduler(void)
-		: LinkedList(std::bind(&RequestScheduler::curValidator, this, std::placeholders::_1)) {
+			: LinkedList(std::bind(&RequestScheduler::curValidator, this, std::placeholders::_1)) {
 			os_timer_setfn(&timer, &RequestScheduler::timerThunk, this);
 		}
 		~RequestScheduler(void) { stopTimer(); }
 
 		void schedule(AsyncWebRequest *req) {
 			if (append(req) == 0) startTimer();
-			ESPWS_DEBUGVV_S(T,"<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+			ESPWS_DEBUGVV_S(L,"<Scheduler> +[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
 		}
 
 		void deschedule(AsyncWebRequest *req) {
 			remove(req);
-			ESPWS_DEBUGVV_S(T,"<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
+			ESPWS_DEBUGVV_S(L,"<Scheduler> -[%s], Queue=%d\n", req->_remoteIdent.c_str(), _count);
 		}
 
 		void curValidator(AsyncWebRequest *x) {
@@ -127,6 +140,14 @@ class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 		void run(bool sched) {
 			int _procCnt = 0;
 			size_t freeHeap = ESP.getFreeHeap();
+#ifdef PURGE_TIMEWAIT
+			if (freeHeap < SCHED_MINHEAP) {
+				// Cleanup time-wait connections to conserve resources
+				while (tcp_tw_pcbs) {
+					tcp_abort(tcp_tw_pcbs);
+				}
+			} else
+#endif
 			while (_procCnt++ <= _count && freeHeap >= SCHED_MINHEAP) {
 				if (!_cur) _cur = _head;
 				if (_cur) {
@@ -153,6 +174,9 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
 	, _parser(nullptr)
 	, _state(REQUEST_SETUP)
 	, _keepAlive(false)
+#ifdef HANDLE_WEBDAV
+	, _translate(false)
+#endif
 	, _version(0)
 	, _method(HTTP_NONE)
 	//, _url()
@@ -198,9 +222,12 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
 }
 
 AsyncWebRequest::~AsyncWebRequest(){
-	Scheduler.deschedule(this);
 	delete _parser;
 	delete _response;
+#ifdef HANDLE_AUTHENTICATION
+	_setSession(nullptr);
+#endif
+	Scheduler.deschedule(this);
 }
 
 const char * AsyncWebRequest::methodToString() const {
@@ -236,8 +263,16 @@ WebACLMatchResult AsyncWebRequest::_setSession(AuthSession *session) {
 #endif
 
 void AsyncWebRequest::_recycleClient(void) {
-	delete _response;
+	// We can only recycle client if everything is OK, which implies that
+	//   all parsing must have completed and parser freed
+	if (_parser) {
+		ESPWS_LOG("ERROR: Dirty parser state\n");
+		panic();
+	}
+	ESPWS_DEBUGV("[%s] Recycling connection...\n", _remoteIdent.c_str());
+
 	_handler = nullptr;
+	delete _response;
 	_response = nullptr;
 
 #ifdef HANDLE_AUTHENTICATION
@@ -245,18 +280,22 @@ void AsyncWebRequest::_recycleClient(void) {
 #endif
 	// Note: Enable the following block of CGI-like features are to be implemented
 /*
-	_contentType.clear(true);
 	_url.clear(true);
 	_host.clear(true);
 	_accept.clear(true);
 	_userAgent.clear(true);
+	_contentType.clear(true);
 	_oUrl.clear(true);
 	_oQuery.clear(true);
+
 	_headers.clear();
 	_queries.clear();
 #ifdef HANDLE_REQUEST_CONTENT
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 	_params.clear();
+#endif
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+	_uploads.clear();
 #endif
 #endif
 */
@@ -265,8 +304,11 @@ void AsyncWebRequest::_recycleClient(void) {
 	_contentLength = 0;
 	_state = REQUEST_SETUP;
 	// Note: the following two fields are the reasons we are here, so no need to touch
-	//_keepAlive = false;
-	//_version = 0;
+	//_keepAlive = true;
+	//_version = 1;
+#ifdef HANDLE_WEBDAV
+	_translate = false;
+#endif
 
 	_client.setRxTimeout(DEFAULT_IDLE_TIMEOUT);
 }
@@ -277,28 +319,24 @@ bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
 		ESPWS_DEBUGDO(REQUEST_RECEIVED: panic());
 
 		case REQUEST_RESPONSE:
-			ESPWS_DEBUGDO(while (!_response) panic());
+			ESPWS_DEBUGDO(if (!_response) panic());
 
-			if (_response->_sending()) {
-				if (_client.canSend()) {
-					ESPWS_DEBUGVV("[%s] PROG: %d\n", _remoteIdent.c_str(), resShare);
-					bool heapChanged = _response->_process(resShare) > 0;
-					if (_response->_sending() || !_keepAlive) return heapChanged;
-				}
-				break;
-			}
-
-			if (!_response->_failed() && _keepAlive) {
+			if (_response->_sending() && _client.canSend()) {
+				ESPWS_DEBUGVV("[%s] Response progress: %d\n", _remoteIdent.c_str(), resShare);
+				size_t progress = _response->_process(resShare);
 				// Recycle for another request
-				_recycleClient();
-				return true;
-			} else if (!_response->_finished()) {
-				break;
+				if (!_response->_sending() && !_response->_failed() && _keepAlive) {
+					_recycleClient();
+				}
+				return progress > 0;
 			}
+			if (!_response->_finished()) break;
 
 		case REQUEST_ERROR:
-			if (!sched) return false;
+			if (!sched) break;
 			_client.close(true);
+			// "Leak" through does the job faster
+			//return true;
 
 		case REQUEST_FINALIZE:
 			delete this;
@@ -308,48 +346,50 @@ bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
 }
 
 void AsyncWebRequest::_onAck(size_t len, uint32_t time){
-	ESPWS_DEBUGVV("[%s] ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
 	if(_response && !_response->_finished()) {
+		ESPWS_DEBUGVV("[%s] Response ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
 		_response->_ack(len, time);
-		if (!_response->_sending() && _keepAlive) {
-			// Recycle for another request
-			_recycleClient();
-		}
+	} else {
+		// Ack from a previous response, since we have already recycled, just ignore...
+		ESPWS_DEBUGVV("[%s] Ignored ACK: %u @ %u\n", _remoteIdent.c_str(), len, time);
 	}
 }
 
 void AsyncWebRequest::_onError(int8_t error){
-	ESPWS_DEBUG("[%s] ERROR: %d, client state: %s\n",
+	ESPWS_DEBUG("[%s] TCP ERROR: %d, client state: %s\n",
 		_remoteIdent.c_str(), error, _client.stateToString());
 }
 
 void AsyncWebRequest::_onTimeout(uint32_t time){
-	ESPWS_DEBUG("[%s] TIMEOUT: %u, client state: %s\n",
+	ESPWS_DEBUGV("[%s] TIMEOUT: %ums, client state: %s\n",
 		_remoteIdent.c_str(), time, _client.stateToString());
 	_state = REQUEST_ERROR;
 }
 
 void AsyncWebRequest::_onDisconnect(){
 	ESPWS_DEBUGV("[%s] DISCONNECT, response state: %s\n", _remoteIdent.c_str(),
-							_response? _response->_stateToString() : "nullptr");
+		_response? _response->_stateToString() : "(None)");
 	_state = REQUEST_FINALIZE;
 }
 
 void AsyncWebRequest::_onData(void *buf, size_t len) {
 	if (_state == REQUEST_SETUP) {
-			_parser = new AsyncRequestHeadParser(*this);
-			_state = REQUEST_START;
+#ifdef HANDLE_AUTHENTICATION
+		_server._authMaintenance();
+#endif
+		_parser = new AsyncRequestHeadParser(*this);
+		_state = REQUEST_START;
 	}
 
 	if (_state == REQUEST_START || _state == REQUEST_HEADERS) {
-			_parser->_parse(buf, len);
-			if (_state <= REQUEST_BODY && !len) return;
+		_parser->_parse(buf, len);
+		if (_state <= REQUEST_BODY && !len) return;
 	}
 
 #ifdef HANDLE_REQUEST_CONTENT
 	if (_state == REQUEST_BODY) {
-			_parser->_parse(buf, len);
-			if (_state == REQUEST_BODY && !len) return;
+		_parser->_parse(buf, len);
+		if (_state == REQUEST_BODY && !len) return;
 	}
 #endif
 
@@ -376,6 +416,9 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 #ifdef HANDLE_REQUEST_CONTENT
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 		_params.clear();
+#endif
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+		_uploads.clear();
 #endif
 #endif
 	}
@@ -485,9 +528,12 @@ AsyncWebUpload const* AsyncWebRequest::getUpload(String const &name) const {
 #endif
 
 void AsyncWebRequest::send(AsyncWebResponse *response) {
+	if(_response){
+		ESPWS_LOG("ERROR: Response already in progress!\n");
+		return;
+	}
 	if(response == nullptr){
-		ESPWS_DEBUG("[%s] WARNING: nullptr response\n", _remoteIdent.c_str());
-		_state = REQUEST_ERROR;
+		ESPWS_LOG("ERROR: Response is NULL\n");
 		return;
 	}
 
@@ -544,6 +590,6 @@ AsyncWebResponse *AsyncWebRequest::beginResponse_P(int code, PGM_P content,
 
 void AsyncWebRequest::redirect(String const &url){
 	AsyncWebResponse *response = beginResponse(302);
-	response->addHeader("Location", url.c_str());
+	response->addHeader(F("Location"), url);
 	send(response);
 }

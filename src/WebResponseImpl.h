@@ -61,7 +61,7 @@ class AsyncSimpleResponse: public AsyncWebResponse {
 		AsyncSimpleResponse(int code): AsyncWebResponse(code) {}
 		~AsyncSimpleResponse() { _releaseSendBuf(); }
 
-		virtual void addHeader(const char *name, const char *value) override;
+		virtual void addHeader(String const &name, String const &value) override;
 		virtual void _respond(AsyncWebRequest &request) override;
 		virtual void _ack(size_t len, uint32_t time) override;
 		virtual size_t _process(size_t resShare) override;
@@ -71,7 +71,10 @@ class AsyncBasicResponse: public AsyncSimpleResponse {
 	protected:
 		String _contentType;
 		size_t _contentLength;
-
+#ifdef ADVERTISE_ACCEPTRANGES
+		bool _acceptRanges;
+#endif
+	
 		virtual void _assembleHead(void) override;
 		virtual void _kickstart(void)
 		{ if (!_contentLength) AsyncSimpleResponse::_kickstart(); }

@@ -109,7 +109,6 @@ AsyncWebServer::AsyncWebServer(uint16_t port)
 	, _AuthAcc(AUTH_ANY)
 	, _Realm(DEFAULT_REALM)
 	, _Secret(system_get_chip_id(), 16)
-	, _NonceLife(DEFAULT_NONCE_LIFE)
 	, _DAuthRecs(nullptr)
 	, _ACLs(nullptr)
 #endif
@@ -137,11 +136,10 @@ void AsyncWebServer::configAuthority(SessionAuthority &Auth, Stream &ACLStream) 
 }
 
 void AsyncWebServer::configRealm(String const &realm, String const &secret,
-	WebAuthTypeComposite authAccept, time_t nonceLife) {
+	WebAuthTypeComposite authAccept) {
 	_Realm = realm;
 	if (secret) _Secret = secret;
 	_AuthAcc = authAccept;
-	_NonceLife = nonceLife;
 }
 #endif
 
@@ -486,15 +484,17 @@ String calcNonce(String const &IP, time_t TS, String const &Secret) {
 	return Ret;
 }
 
-AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
-	AsyncWebRequest const &request) const {
+void AsyncWebServer::_authMaintenance(void) const {
 	time_t CurTS = time(nullptr);
-	// Cleanup stale records
+	// Cleanup stale nonce records
 	auto DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
 	while (DAuthRecs->remove_if([&](NONCEREC const&r){
-		return r.EXPIRY+DEFAULT_NONCE_RENWEAL < CurTS;
+		return r.EXPIRY+DEFAULT_NONCE_RENEWAL < CurTS;
 	}));
+}
 
+AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
+	AsyncWebRequest const &request) const {
 	AsyncWebAuth Ret(AUTHHEADER_ANONYMOUS, AUTH_NONE);
 	while (authHeader) {
 		Ret.State = AUTHHEADER_MALFORMED;
@@ -509,6 +509,12 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 		String Type = &authHeader[0];
 		if (Type.equalsIgnoreCase("Basic")) {
 			Ret.Type = AUTH_BASIC;
+#ifdef AUTHENTICATION_DISABLE_BASIC
+			ESPWS_DEBUG("[%s] WARNING: %s authorization has been disabled!\n",
+				request._remoteIdent.c_str(), Type.c_str());
+			Ret.State = AUTHHEADER_UNACCEPT;
+			break;
+#else
 			ESPWS_DEBUGVV("[%s] %s Authorization:\n",
 				request._remoteIdent.c_str(), Ret._typeToString());
 			// Base64(username:password)
@@ -540,6 +546,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 				request._remoteIdent.c_str(), Ret.UserName.c_str());
 			ESPWS_DEBUGVV("[%s] -> Password = '%s'\n",
 				request._remoteIdent.c_str(), Ret.Secret.c_str());
+#endif
 		} else if (Type.equalsIgnoreCase("Digest")) {
 			Ret.Type = AUTH_DIGEST;
 			ESPWS_DEBUGVV("[%s] %s Authorization:\n",
@@ -607,16 +614,19 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 				ESPWS_DEBUGVV("[%s] -> Nonce = '%s'\n",
 					request._remoteIdent.c_str(), Nonce.c_str());
 				// Lookup alive records
+				auto DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
 				NRec = DAuthRecs->get_if([&](NONCEREC const&r){ return r.NONCE.equals(Nonce); });
 				if (!NRec) {
-					ESPWS_DEBUG("[%s] WARNING: No record found with given nonce '%s'\n",
+					ESPWS_DEBUGV("[%s] WARNING: No record found with given nonce '%s'\n",
 						request._remoteIdent.c_str(), Nonce.c_str());
 					Ret.State = AUTHHEADER_NORECORD;
 					break;
 				}
+				Ret.NRec = NRec;
 				// Check record expiration
+				time_t CurTS = time(nullptr);
 				if (NRec->EXPIRY < CurTS) {
-					ESPWS_DEBUG("[%s] WARNING: Expired record with given nonce '%s'\n",
+					ESPWS_DEBUGV("[%s] WARNING: Expired record with given nonce '%s'\n",
 						request._remoteIdent.c_str(), Nonce.c_str());
 					Ret.State = AUTHHEADER_EXPIRED;
 					break;
@@ -687,13 +697,13 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 						request._remoteIdent.c_str(), NC.c_str());
 #ifdef STRICT_PROTOCOL
 					if (NC.length() != 8) {
-						ESPWS_DEBUG("[%s] WARNING: Invalid nc field '%s'\n",
+						ESPWS_DEBUG("[%s] WARNING: Invalid nonce-count field '%s'\n",
 							request._remoteIdent.c_str(), NC.c_str());
 						break;
 					}
 #endif
 					if (NC <= NRec->NC) {
-						ESPWS_DEBUG("[%s] WARNING: Detected nc reversal, '%s' <= '%s'\n",
+						ESPWS_DEBUG("[%s] WARNING: Detected nonce-count reversal, '%s' <= '%s'\n",
 							request._remoteIdent.c_str(), NC.c_str(), NRec->NC.c_str());
 						Ret.State = AUTHHEADER_UNACCEPT;
 						break;
@@ -703,7 +713,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 					Ret.Secret.concat(valStart,valEnd-valStart-1);
 				} else {
 					if (QoPLevel > 0) {
-						ESPWS_DEBUG("[%s] WARNING: Missing cnonce field in '%s'\n",
+						ESPWS_DEBUG("[%s] WARNING: Missing nonce-count field in '%s'\n",
 							request._remoteIdent.c_str(), &authHeader[indexAttr]);
 						break;
 					} else {
@@ -747,34 +757,31 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 	return Ret;
 }
 
-AuthSession* AsyncWebServer::_authSession(AsyncWebAuth &authInfo, AsyncWebRequest const &request) const {
+WebAuthSession* AsyncWebServer::_authSession(AsyncWebAuth &authInfo, AsyncWebRequest const &request) const {
 	switch (authInfo.Type) {
 		case AUTH_NONE:
 			ESPWS_DEBUGVV("[%s] Authorizing anonymous session...\n",
 				request._remoteIdent.c_str());
-			return new AuthSession(_Auth->getSession(
-				Credential(IdentityProvider::ANONYMOUS, EA_SECRET_NONE, String())));
+			return new WebAuthSession(_Auth->getSession(
+				Credential(IdentityProvider::ANONYMOUS, EA_SECRET_NONE, String())), authInfo);
+
 		case AUTH_BASIC:
-#ifdef AUTHENTICATION_DISABLE_BASIC
-			ESPWS_DEBUG("[%s] ERROR: Authorization type '%s' has been disabled!\n",
-				request._remoteIdent.c_str(), authInfo._typeToString());
-			break;
-#else
 			ESPWS_DEBUGVV("[%s] Authorizing basic session...\n",
 				request._remoteIdent.c_str());
-			return new AuthSession(_Auth->getSession(authInfo.UserName,
-				EA_SECRET_PLAINTEXT, std::move(authInfo.Secret)));
-#endif
+			return new WebAuthSession(_Auth->getSession(authInfo.UserName,
+				EA_SECRET_PLAINTEXT, std::move(authInfo.Secret)), authInfo);
+
 		case AUTH_DIGEST:
 			ESPWS_DEBUGVV("[%s] Authorizing digest session...\n",
 				request._remoteIdent.c_str());
-			return new AuthSession(_Auth->getSession(authInfo.UserName,
+			return new WebAuthSession(_Auth->getSession(authInfo.UserName,
 #ifdef AUTHENTICATION_ENABLE_SESS
 				EA_SECRET_HTTPDIGESTAUTH_MD5SESS,
 #else
 				EA_SECRET_HTTPDIGESTAUTH_MD5,
 #endif
-				std::move(authInfo.Secret)));
+				std::move(authInfo.Secret)), authInfo);
+
 		default:
 			ESPWS_DEBUG("[%s] ERROR: Unrecognised authorization type '%s'\n",
 				request._remoteIdent.c_str(), authInfo._typeToString());
@@ -783,40 +790,40 @@ AuthSession* AsyncWebServer::_authSession(AsyncWebAuth &authInfo, AsyncWebReques
 }
 
 void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest const &request,
-	bool renew) const {
+	bool renew, NONCEREC const *NRec) const {
 	if (_AuthAcc & AUTH_REQUIRE != 0) {
 		if (_AuthAcc & AUTH_BASIC) {
-#ifdef AUTHENTICATION_DISABLE_BASIC
-			ESPWS_DEBUGV("[%s] WARNING: Basic authentication has been disabled!\n",
-				request._remoteIdent.c_str());
-#else
-			String Message("Basic realm=");
+#ifndef AUTHENTICATION_DISABLE_BASIC
+			String Message(F("Basic realm="));
 			putQuotedToken(_Realm, Message, ',', false, true);
-			response.addHeader("WWW-Authenticate", Message.c_str());
+			response.addHeader(F("WWW-Authenticate"), Message);
 #endif
 		}
 
 		if (_AuthAcc & AUTH_DIGEST) {
-			time_t ExpTS = time(nullptr) + _NonceLife;
-			String NewNonce = calcNonce(request._client.remoteIP().toString(), ExpTS, _Secret);
-			String Message("Digest realm=");
+			time_t ExpTS = time(nullptr) + DEFAULT_NONCE_LIFE;
+			String Message(F("Digest realm="));
 			putQuotedToken(_Realm, Message, ',', false, true);
-			Message.concat(",qop=");
+			Message.concat(F(",qop="));
 			putQuotedToken("auth", Message, ',', false, true);
-			Message.concat(",nonce=");
-			putQuotedToken(NewNonce, Message, ',', false, true);
-#ifdef AUTHENTICATION_ENABLE_SESS
-			Message.concat(",algorithm=MD5-sess");
-#endif
-			if (renew) Message.concat(",stale=true");
-			response.addHeader("WWW-Authenticate", Message.c_str());
-			auto DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
-			DAuthRecs->append(NONCEREC(std::move(NewNonce), ExpTS));
-			if (DAuthRecs->length() > DEFAULT_NONCE_MAXIMUM) {
-				ESPWS_DEBUG("[%s] WARNING: Nonce buffer overflow, retiring oldest nonce...\n",
-					request._remoteIdent.c_str());
-				DAuthRecs->remove_nth(0);
+			Message.concat(F(",nonce="));
+			if (NRec) {
+				putQuotedToken(NRec->NONCE, Message, ',', false, true);
+			} else {
+				String NewNonce = calcNonce(request._client.remoteIP().toString(), ExpTS, _Secret);
+				putQuotedToken(NewNonce, Message, ',', false, true);
+				auto DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
+				if (DAuthRecs->append(NONCEREC(std::move(NewNonce), ExpTS)) > DEFAULT_NONCE_MAXIMUM) {
+					ESPWS_DEBUG("[%s] WARNING: Nonce buffer overflow, retiring oldest nonce...\n",
+						request._remoteIdent.c_str());
+					DAuthRecs->remove_nth(0);
+				}
 			}
+#ifdef AUTHENTICATION_ENABLE_SESS
+			Message.concat(F(",algorithm=MD5-sess"));
+#endif
+			if (renew) Message.concat(F(",stale=true"));
+			response.addHeader(F("WWW-Authenticate"), Message);
 		}
 	} else {
 		// No known authentication required

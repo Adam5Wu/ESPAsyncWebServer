@@ -89,26 +89,28 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 							_request._remoteIdent.c_str(), _session->toString().c_str());
 						if (!_session->isAuthorized()) {
 							ESPWS_DEBUGV("[%s] Retry authentication\n", _request._remoteIdent.c_str());
-							_requestAuth();
+							_requestAuth(false, _session->NRec);
+							if (_session->NRec) {
+								// Google Chrome seems to disregard NC when authentication was unsuccessful
+								const_cast<String*>(&_session->NRec->NC)->clear();
+							}
 							delete _session;
-							_session = nullptr;
-						}
-						switch (__setSession(_session)) {
-							case ACL_ALLOWED: break;
-							case ACL_NOTALLOWED: {
-								ESPWS_DEBUGV("[%s] Decline access by ACL\n", _request._remoteIdent.c_str());
-								// Order is important
-								_rejectAuth(_session);
-								delete _session;
-								_session = nullptr;
-							} break;
-							default: {
-								ESPWS_DEBUGV("[%s] Decline access due to lack of ACL\n",
-									_request._remoteIdent.c_str());
-								delete _session;
-								_session = nullptr;
-								// Order is important
-								_rejectAuth(_session);
+							return false;
+						} else {
+							switch (__setSession(_session)) {
+								case ACL_ALLOWED: break;
+								case ACL_NOTALLOWED: {
+									ESPWS_DEBUGV("[%s] Decline access by ACL\n", _request._remoteIdent.c_str());
+									_rejectAuth(_session);
+									delete _session;
+									return false;
+								} break;
+								default: {
+									ESPWS_DEBUGV("[%s] Decline access due to lack of ACL\n",
+										_request._remoteIdent.c_str());
+									delete _session;
+									_session = nullptr;
+								}
 							}
 						}
 					} else {
@@ -116,7 +118,7 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 					}
 					if (!_session) {
 						if (__reqState() == REQUEST_HEADERS)
-							__reqState(REQUEST_ERROR);
+							_rejectAuth(nullptr);
 						return false;
 					}
 #endif
@@ -305,8 +307,10 @@ void AsyncRequestHeadParser::_parse(void *&buf, size_t &len) {
 
 #ifdef HANDLE_AUTHENTICATION
 
-AuthSession* AsyncRequestHeadParser::_handleAuth(void) {
+WebAuthSession* AsyncRequestHeadParser::_handleAuth(void) {
 	AsyncWebAuth AuthInfo = _request._server._parseAuthHeader(_authorization, _request);
+	// Debug code, force all auth to anonymous
+	//return new WebAuthSession(AuthSession(IdentityProvider::ANONYMOUS, nullptr), AuthInfo);
 	switch (AuthInfo.State) {
 		case AUTHHEADER_ANONYMOUS:
 		case AUTHHEADER_PREAUTH:
@@ -314,12 +318,12 @@ AuthSession* AsyncRequestHeadParser::_handleAuth(void) {
 
 		case AUTHHEADER_EXPIRED:
 		case AUTHHEADER_NORECORD:
-			_requestAuth(AuthInfo.State == AUTHHEADER_EXPIRED);
+			_requestAuth(true);
 			break;
 
 		case AUTHHEADER_UNACCEPT:
 		case AUTHHEADER_MALFORMED:
-			return new AuthSession(IdentityProvider::UNKNOWN, nullptr);
+			break;
 
 		default:
 			ESPWS_DEBUG("[%s] WARNING: Unrecognised authorization header parsing state '%s'\n",
@@ -328,18 +332,19 @@ AuthSession* AsyncRequestHeadParser::_handleAuth(void) {
 	return nullptr;
 }
 
-void AsyncRequestHeadParser::_requestAuth(bool renew) {
+void AsyncRequestHeadParser::_requestAuth(bool renew, NONCEREC const *NRec) {
 	AsyncWebResponse *response = _request.beginResponse(401);
-	_request._server._genAuthHeader(*response, _request, renew);
+	_request._server._genAuthHeader(*response, _request, renew, NRec);
 	_request.send(response);
 	__reqState(REQUEST_RESPONSE);
 }
 
 void AsyncRequestHeadParser::_rejectAuth(AuthSession *session) {
-	if (!session || session->IDENT != IdentityProvider::ANONYMOUS) {
+	if (!session || (session->IDENT != IdentityProvider::ANONYMOUS &&
+		session->IDENT != IdentityProvider::UNKNOWN)) {
 		_request.send(403);
 		__reqState(REQUEST_RESPONSE);
-	} else _requestAuth();
+	} else _requestAuth(false);
 }
 
 #endif

@@ -101,7 +101,7 @@ class AsyncWebParser {
 
 	public:
 		AsyncWebParser(AsyncWebRequest &request) : _request(request) {}
-		virtual ~AsyncWebParser() {}
+		virtual ~AsyncWebParser(void) {}
 
 		virtual void _parse(void *&buf, size_t &len) = 0;
 		ESPWS_DEBUGDO(virtual const char* _stateToString(void) const = 0);
@@ -141,8 +141,8 @@ class AsyncRequestHeadParser: public AsyncWebParser {
 		virtual void _parse(void *&buf, size_t &len) override;
 
 #ifdef HANDLE_AUTHENTICATION
-		AuthSession* _handleAuth(void);
-		void _requestAuth(bool renew = false);
+		WebAuthSession* _handleAuth(void);
+		void _requestAuth(bool renew, NONCEREC const *NRec = nullptr);
 		void _rejectAuth(AuthSession *session);
 #endif
 

@@ -31,8 +31,9 @@ class AsyncHostRedirWebHandler: public AsyncWebHandler {
 	protected:
 		void _redirectHost(AsyncWebRequest &request) {
 			String newLocation = "http://"+host;
-			if (altPath) newLocation.concat(altPath);
-			else {
+			if (altPath && !psvPaths.contains(request.oUrl())) {
+				newLocation.concat(altPath);
+			} else {
 				newLocation.concat(request.oUrl());
 				if (request.oQuery())
 					newLocation.concat(request.oQuery());
@@ -42,11 +43,12 @@ class AsyncHostRedirWebHandler: public AsyncWebHandler {
 
 	public:
 		String const host;
-		String const altPath;
 		WebRequestMethodComposite const method;
+		String altPath;
+		StringArray psvPaths;
 
-		AsyncHostRedirWebHandler(String const &h, String const &p, WebRequestMethodComposite m)
-			: host(h), altPath(p), method(m) {}
+		AsyncHostRedirWebHandler(String const &h, WebRequestMethodComposite m)
+			: host(h), method(m) {}
 		virtual bool _canHandle(AsyncWebRequest const &request) override;
 		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;
 

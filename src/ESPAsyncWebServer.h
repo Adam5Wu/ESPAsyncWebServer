@@ -31,13 +31,13 @@
 
 #include "Misc.h"
 
+#ifndef ESPWS_DEBUG_LEVEL
+#define ESPWS_DEBUG_LEVEL ESPZW_DEBUG_LEVEL
+#endif
+
 #ifndef ESPWS_LOG
 #define ESPWS_LOG(...) ESPZW_LOG(__VA_ARGS__)
 #define ESPWS_LOG_S(...) ESPZW_LOG_S(__VA_ARGS__)
-#endif
-
-#ifndef ESPWS_DEBUG_LEVEL
-#define ESPWS_DEBUG_LEVEL ESPZW_DEBUG_LEVEL
 #endif
 
 #if ESPWS_DEBUG_LEVEL < 1
@@ -70,6 +70,8 @@
 	#define ESPWS_DEBUGVV_S(...) ESPWS_LOG_S(__VA_ARGS__)
 #endif
 
+#define PURGE_TIMEWAIT
+
 #define STRICT_PROTOCOL
 
 #define HANDLE_REQUEST_CONTENT
@@ -82,6 +84,7 @@
 
 #define ADVANCED_STATIC_WEBHANDLER
 
+//#define ADVERTISE_ACCEPTRANGES
 #define HANDLE_WEBDAV
 
 #define REQUEST_PARAM_MEMCACHE    1024
@@ -94,9 +97,9 @@
 
 #ifdef HANDLE_AUTHENTICATION
 #define DEFAULT_REALM             "ESPAsyncWeb"
-#define DEFAULT_NONCE_LIFE        300
-#define DEFAULT_NONCE_RENWEAL     30
-#define DEFAULT_NONCE_MAXIMUM     20
+#define DEFAULT_NONCE_LIFE        120
+#define DEFAULT_NONCE_RENEWAL     30
+#define DEFAULT_NONCE_MAXIMUM     10
 
 #include "ESPEasyAuth.h"
 #endif
@@ -315,12 +318,12 @@ class AsyncWebRequest {
 		ESPWS_DEBUGDO(const char* _stateToString(void) const);
 
 	public:
-		AsyncClient& _client;
+		AsyncClient &_client;
 		AsyncWebServer const &_server;
 		ESPWS_DEBUGDO(String const _remoteIdent);
 
 		AsyncWebRequest(AsyncWebServer const &server, AsyncClient &client);
-		~AsyncWebRequest(void);
+		virtual ~AsyncWebRequest(void);
 
 		bool _makeProgress(size_t resShare, bool timer);
 
@@ -461,10 +464,10 @@ class AsyncWebResponse {
 		AsyncWebResponse(int code);
 
 	public:
-		virtual ~AsyncWebResponse() {}
+		virtual ~AsyncWebResponse(void);
 
 		virtual void setCode(int code);
-		virtual void addHeader(const char *name, const char *value) = 0;
+		virtual void addHeader(String const &name, String const &value) = 0;
 
 		virtual void _respond(AsyncWebRequest &request);
 		virtual void _ack(size_t len, uint32_t time) = 0;
@@ -586,15 +589,41 @@ extern WebAuthTypeComposite const AUTH_ANY;
 extern WebAuthTypeComposite const AUTH_REQUIRE;
 extern WebAuthTypeComposite const AUTH_SECURE;
 
+struct NONCEREC {
+	String const NONCE;
+	time_t const EXPIRY;
+	String NC;
+
+	NONCEREC(String const &nonce, time_t expiry): NONCE(nonce), EXPIRY(expiry) {}
+	NONCEREC(String &&nonce, time_t expiry): NONCE(std::move(nonce)), EXPIRY(expiry) {}
+};
+
 struct AsyncWebAuth {
 	WebAuthHeaderState State;
 	WebAuthType Type;
+	NONCEREC const *NRec;
 	String UserName;
 	String Secret;
 
-	AsyncWebAuth(WebAuthHeaderState state, WebAuthType type): State(state), Type(type) {}
+	AsyncWebAuth(WebAuthHeaderState state, WebAuthType type)
+		: State(state), Type(type), NRec(nullptr) {}
 	ESPWS_DEBUGDO(const char* _stateToString(void) const);
 	ESPWS_DEBUGDO(const char* _typeToString(void) const);
+};
+
+class WebAuthSession : public AuthSession {
+	public:
+		WebAuthType const Type;
+		NONCEREC const *NRec;
+
+		WebAuthSession(Identity &ident, Authorizer *auth, AsyncWebAuth &authInfo)
+			: AuthSession(ident, auth), Type(authInfo.Type), NRec(authInfo.NRec) {}
+
+		WebAuthSession(Credential &cred, Authorizer *auth, AsyncWebAuth &authInfo)
+			: AuthSession(cred, auth), Type(authInfo.Type), NRec(authInfo.NRec) {}
+
+		WebAuthSession(AuthSession &&session, AsyncWebAuth &authInfo)
+			: AuthSession(std::move(session)), Type(authInfo.Type), NRec(authInfo.NRec) {}
 };
 
 #endif
@@ -639,16 +668,7 @@ class AsyncWebServer {
 		WebAuthTypeComposite _AuthAcc;
 		String _Realm;
 		String _Secret;
-		time_t _NonceLife;
 
-		struct NONCEREC {
-			String const NONCE;
-			time_t const EXPIRY;
-			String NC;
-
-			NONCEREC(String const &nonce, time_t expiry): NONCE(nonce), EXPIRY(expiry) {}
-			NONCEREC(String &&nonce, time_t expiry): NONCE(std::move(nonce)), EXPIRY(expiry) {}
-		};
 		LinkedList<NONCEREC> _DAuthRecs;
 
 		struct HTTPACL {
@@ -667,13 +687,12 @@ class AsyncWebServer {
 		static char const *VERTOKEN;
 
 		AsyncWebServer(uint16_t port);
-		~AsyncWebServer(void);
+		virtual ~AsyncWebServer(void);
 
 #ifdef HANDLE_AUTHENTICATION
 		void configAuthority(SessionAuthority &Auth, Stream &ACLStream);
 		void configRealm(String const &realm, String const &secret = String::EMPTY,
-			WebAuthTypeComposite authAccept = AUTH_ANY,
-			time_t nonceLife = DEFAULT_NONCE_LIFE);
+			WebAuthTypeComposite authAccept = AUTH_ANY);
 #endif
 
 		void begin() { _server.begin(); }
@@ -754,9 +773,11 @@ class AsyncWebServer {
 		void _attachHandler(AsyncWebRequest &request) const;
 
 #ifdef HANDLE_AUTHENTICATION
+		void _authMaintenance(void) const;
 		AsyncWebAuth _parseAuthHeader(String &authHeader, AsyncWebRequest const &request) const;
-		AuthSession* _authSession(AsyncWebAuth &authInfo, AsyncWebRequest const &request) const;
-		void _genAuthHeader(AsyncWebResponse &response, AsyncWebRequest const &request, bool renew) const;
+		WebAuthSession* _authSession(AsyncWebAuth &authInfo, AsyncWebRequest const &request) const;
+		void _genAuthHeader(AsyncWebResponse &response, AsyncWebRequest const &request,
+			bool renew, NONCEREC const *NRec) const;
 		WebACLMatchResult _checkACL(AsyncWebRequest const &request, AuthSession* session) const;
 #endif
 

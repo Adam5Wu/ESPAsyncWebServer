@@ -50,7 +50,13 @@ AsyncWebResponse::AsyncWebResponse(int code)
 	: _code(code)
 	, _state(RESPONSE_SETUP)
 	, _request(nullptr)
-{}
+{
+	// Nothing
+}
+
+AsyncWebResponse::~AsyncWebResponse(void) {
+	// Nothing
+}
 
 PGM_P AsyncWebResponse::_responseCodeToString(void) {
 	switch (_code) {
@@ -162,9 +168,9 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
 void AsyncSimpleResponse::_assembleHead(void) {
 	uint8_t version = _request->version();
 	if (!_request->keepAlive()) {
-		addHeader("Connection", "close");
+		addHeader(F("Connection"), F("close"));
 	} else if (!version) {
-		addHeader("Connection", "keep-alive");
+		addHeader(F("Connection"), F("keep-alive"));
 	}
 
 	ESPWS_DEBUGVV("[%s]--- Headers Start ---\n%s--- Headers End ---\n",
@@ -186,7 +192,7 @@ void AsyncSimpleResponse::_assembleHead(void) {
 	_headers.concat("\r\n",2);
 }
 
-void AsyncSimpleResponse::addHeader(const char *name, const char *value) {
+void AsyncSimpleResponse::addHeader(String const &name, String const &value) {
 	if (_started()) {
 		ESPWS_LOG("[%s] ERROR: Response already started, cannot add more header!\n");
 		return;
@@ -211,29 +217,32 @@ size_t AsyncSimpleResponse::_process(size_t resShare) {
 	ESPWS_DEBUGVV("[%s] Processing share %d\n", _request->_remoteIdent.c_str(), resShare);
 	size_t written = 0;
 	while (_sending() && resShare && _prepareSendBuf(resShare)) {
-		size_t sendLen = _request->_client.add((const char*)&_sendbuf[_bufSent], _bufLen);
-		if (sendLen) {
-			ESPWS_DEBUGVV("[%s] Queued %d of %d\n",
-				_request->_remoteIdent.c_str(), sendLen, _bufLen);
-			written += sendLen;
-			_bufSent += sendLen;
-			resShare -= sendLen;
-			if (!(_bufLen-= sendLen))
-				_releaseSendBuf(true);
-		} else {
-			ESPWS_DEBUGVV("[%s] Pipe congested, %d share left\n",
-				_request->_remoteIdent.c_str(), resShare);
-			break;
-		}
+		if (_bufLen) {
+			size_t sendLen = _request->_client.add((const char*)&_sendbuf[_bufSent], _bufLen);
+			if (sendLen) {
+				ESPWS_DEBUGVV("[%s] Queued %d of %d\n",
+					_request->_remoteIdent.c_str(), sendLen, _bufLen);
+				written += sendLen;
+				_bufSent += sendLen;
+				resShare -= sendLen;
+				if (!(_bufLen-= sendLen))
+					_releaseSendBuf(true);
+			} else {
+				ESPWS_DEBUGVV("[%s] Pipe congested, %d share left\n",
+					_request->_remoteIdent.c_str(), resShare);
+				break;
+			}
+		} else break;
 	}
 	// If all prepared data are sent, no need to occupy memory
 	if (!_bufLen) _releaseSendBuf();
 	if (written) {
-		// ASSUMPTION: No error that concerns us will happen
-		// TRUE with current implementation (error code is only possible when nothing to send)
-		_request->_client.send();
-		_inFlightLength += written;
-		ESPWS_DEBUGVV("[%s] In-flight %d\n", _request->_remoteIdent.c_str(), _inFlightLength);
+		if (!_request->_client.send()) {
+			ESPWS_DEBUGVV("[%s] WARNING: TCP send failed!\n", _request->_remoteIdent.c_str());
+		} else {
+			_inFlightLength += written;
+			ESPWS_DEBUGVV("[%s] In-flight %d\n", _request->_remoteIdent.c_str(), _inFlightLength);
+		}
 	}
 	return written;
 }
@@ -289,7 +298,7 @@ void AsyncSimpleResponse::_prepareHeadSendBuf(size_t space) {
 
 void AsyncSimpleResponse::_prepareContentSendBuf(size_t space) {
 	// Implement null content
-	ESPWS_DEBUGV("[%s] No content to send\n", _request->_remoteIdent.c_str());
+	ESPWS_DEBUGV("[%s] End of body content\n", _request->_remoteIdent.c_str());
 	_state = RESPONSE_WAIT_ACK;
 }
 
@@ -312,20 +321,26 @@ AsyncBasicResponse::AsyncBasicResponse(int code, String const &contentType)
 	: AsyncSimpleResponse(code)
 	, _contentType(contentType)
 	, _contentLength(-1)
+#ifdef ADVERTISE_ACCEPTRANGES
+	, _acceptRanges(false)
+#endif
 {}
 
 void AsyncBasicResponse::_assembleHead(void) {
 	if (_contentLength && _contentLength != -1) {
-		addHeader("Content-Length", String(_contentLength).c_str());
-		if (_request->version())
-			addHeader("Accept-Ranges", "none");
+		addHeader(F("Content-Length"), String(_contentLength));
+#ifdef ADVERTISE_ACCEPTRANGES
+		if (_request->version()) {
+			addHeader(F("Accept-Ranges"), _acceptRanges ? F("bytes") : F("none"));
+		}
+#endif
 	}
 	if (_contentType) {
-		addHeader("Content-Type", _contentType.c_str());
+		addHeader(F("Content-Type"), _contentType);
 		_contentType.clear(true);
 	} else if (_contentLength && _contentLength != -1) {
 		// Make a safe (conservative) guess
-		addHeader("Content-Type", "application/octet-stream");
+		addHeader(F("Content-Type"), F("application/octet-stream"));
 	}
 
 	AsyncSimpleResponse::_assembleHead();
@@ -415,15 +430,17 @@ void AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
 	if (space) {
 		size_t bufToSend = (_contentLength == -1)? space : _contentLength - _bufPrepared;
 		_bufLen = (space < bufToSend)? space : bufToSend;
-		ESPWS_DEBUGV("[%s] Preparing %d / %d\n",
-			_request->_remoteIdent.c_str(), _bufLen, bufToSend);
+		if (_bufLen) {
+			ESPWS_DEBUGV("[%s] Preparing %d / %d\n",
+				_request->_remoteIdent.c_str(), _bufLen, bufToSend);
 
-		_sendbuf = _stashbuf? _stashbuf : (_stashbuf = (uint8_t*)malloc(STAGEBUF_SIZE));
-		if (_sendbuf) {
-			_bufLen = _fillBuffer((uint8_t*)_sendbuf, _bufLen < STAGEBUF_SIZE? _bufLen
-				: STAGEBUF_SIZE);
-			_bufPrepared+= _bufLen;
-		} else ESPWS_DEBUGV("[%s] Buffer allocation failed!\n", _request->_remoteIdent.c_str());
+			_sendbuf = _stashbuf? _stashbuf : (_stashbuf = (uint8_t*)malloc(STAGEBUF_SIZE));
+			if (_sendbuf) {
+				_bufLen = _fillBuffer((uint8_t*)_sendbuf, _bufLen < STAGEBUF_SIZE? _bufLen
+					: STAGEBUF_SIZE);
+				_bufPrepared+= _bufLen;
+			} else ESPWS_DEBUGV("[%s] Buffer allocation failed!\n", _request->_remoteIdent.c_str());
+		}
 	}
 }
 
@@ -461,33 +478,33 @@ AsyncFileResponse::AsyncFileResponse(File const& content, String const &path,
 			int extensionStart = path.lastIndexOf('.')+1;
 			String extension = path.begin() + extensionStart;
 
-			if (extension == "htm" || extension == "html") _contentType = "text/html";
-			else if (extension == "css") _contentType = "text/css";
-			else if (extension == "json") _contentType = "text/json";
-			else if (extension == "js") _contentType = "application/javascript";
-			else if (extension == "png") _contentType = "image/png";
-			else if (extension == "gif") _contentType = "image/gif";
-			else if (extension == "jpg" || extension == "jpeg") _contentType = "image/jpeg";
-			else if (extension == "ico") _contentType = "image/x-icon";
-			else if (extension == "svg") _contentType = "image/svg+xml";
-			else if (extension == "eot") _contentType = "font/eot";
-			else if (extension == "woff") _contentType = "font/woff";
-			else if (extension == "woff2") _contentType = "font/woff2";
-			else if (extension == "ttf") _contentType = "font/ttf";
-			else if (extension == "xml") _contentType = "text/xml";
-			else if (extension == "txt") _contentType = "text/plain";
-			else if (extension == "xhtml") _contentType = "application/xhtml+xml";
-			else if (extension == "pdf") _contentType = "application/pdf";
-			else if (extension == "zip") _contentType = "application/zip";
-			else if (extension == "gz") _contentType = "application/x-gzip";
-			else _contentType = "application/octet-stream";
+			if (extension == "htm" || extension == "html") _contentType = F("text/html");
+			else if (extension == "css") _contentType = F("text/css");
+			else if (extension == "json") _contentType = F("text/json");
+			else if (extension == "js") _contentType = F("application/javascript");
+			else if (extension == "png") _contentType = F("image/png");
+			else if (extension == "gif") _contentType = F("image/gif");
+			else if (extension == "jpg" || extension == "jpeg") _contentType = F("image/jpeg");
+			else if (extension == "ico") _contentType = F("image/x-icon");
+			else if (extension == "svg") _contentType = F("image/svg+xml");
+			else if (extension == "eot") _contentType = F("font/eot");
+			else if (extension == "woff") _contentType = F("font/woff");
+			else if (extension == "woff2") _contentType = F("font/woff2");
+			else if (extension == "ttf") _contentType = F("font/ttf");
+			else if (extension == "xml") _contentType = F("text/xml");
+			else if (extension == "txt") _contentType = F("text/plain");
+			else if (extension == "xhtml") _contentType = F("application/xhtml+xml");
+			else if (extension == "pdf") _contentType = F("application/pdf");
+			else if (extension == "zip") _contentType = F("application/zip");
+			else if (extension == "gz") _contentType = F("application/x-gzip");
+			//else _contentType = F("application/octet-stream");
 		}
 
 		if (download) {
 			size_t filenameStart = path.lastIndexOf('/') + 1;
 			char buf[26+path.length()-filenameStart];
-			snprintf(buf, sizeof(buf), "attachment; filename=\"%s\"", path.begin()+filenameStart);
-			addHeader("Content-Disposition", buf);
+			snprintf_P(buf, sizeof(buf), PSTR("attachment; filename=\"%s\""), path.begin()+filenameStart);
+			addHeader(F("Content-Disposition"), buf);
 		}
 	}
 }
@@ -601,7 +618,7 @@ AsyncChunkedResponse::AsyncChunkedResponse(int code, AwsResponseFiller callback,
 
 void AsyncChunkedResponse::_assembleHead(void){
 	if (_request->version()) {
-		addHeader("Transfer-Encoding", "chunked");
+		addHeader(F("Transfer-Encoding"), F("chunked"));
 	} else {
 		_code = 505;
 		_contentLength = 0; // Prevents fillBuffer from being called

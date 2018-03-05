@@ -210,7 +210,7 @@ void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 	File CWF;
 	bool gzEncode = _GET_gzLookup;
 	if (gzEncode) {
-		auto Header = request.getHeader("Accept-Encoding");
+		auto Header = request.getHeader(F("Accept-Encoding"));
 		gzEncode = (Header != nullptr) && Header->values.get_if([](String const &v) {
 			return v.indexOf("gzip")>=0;
 		}) != nullptr;
@@ -269,7 +269,7 @@ void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 		time_t fm = CWF.mtime();
 		size_t fs = CWF.size();
 		etag = "W/\""+String(fs)+'@'+String(fm,16)+'"';
-		auto Header = request.getHeader("If-None-Match");
+		auto Header = request.getHeader(F("If-None-Match"));
 		if (Header != nullptr && Header->values.contains(etag)) {
 			request.send(304); // Not modified
 			return;
@@ -279,11 +279,11 @@ void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 	ESPWS_DEBUGVV("[%s] Serving '%s'\n", request._remoteIdent.c_str(), CWF.name());
 	AsyncWebResponse * response = new AsyncFileResponse(CWF, subpath);
 	if (_cache_control) {
-		response->addHeader("Cache-Control", _cache_control.c_str());
-		response->addHeader("ETag", etag.c_str());
+		response->addHeader(F("Cache-Control"), _cache_control);
+		response->addHeader(F("ETag"), etag);
 	}
 	if (gzEncode) {
-		response->addHeader("Content-Encoding", "gzip");
+		response->addHeader(F("Content-Encoding"), F("gzip"));
 	}
 	request.send(response);
 }
@@ -292,6 +292,8 @@ void AsyncStaticWebHandler::_GET_sendDirList(AsyncWebRequest &request) {
 	String subpath = request.url().substring(path.length());
 	Dir CWD = subpath? _dir.openDir(subpath.c_str()) : _dir;
 	if (!CWD) {
+		ESPWS_DEBUGV("[%s] Unable to locate dir '%s'\n",
+			request._remoteIdent.c_str(), subpath.c_str());
 		request.send(500);
 		return;
 	}
