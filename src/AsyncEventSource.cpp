@@ -125,8 +125,12 @@ AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebRequest *request, AsyncEv
   _client.onAck(NULL, NULL);
   _client.onPoll(NULL, NULL);
   _client.onData(NULL, NULL);
-  _client.onTimeout([](void *r, AsyncClient* c __attribute__((unused)), uint32_t time){ ((AsyncEventSourceClient*)(r))->_onTimeout(time); }, this);
-  _client.onDisconnect([](void *r, AsyncClient* c){ ((AsyncEventSourceClient*)(r))->_onDisconnect(); delete c; }, this);
+  _client.onTimeout([](void *r, AsyncClient* c __attribute__((unused)), uint32_t time){
+    ((AsyncEventSourceClient*)(r))->_onTimeout(time);
+  }, this);
+  _client.onDisconnect([](void *r, AsyncClient* c){
+    ((AsyncEventSourceClient*)(r))->_onDisconnect(); delete c;
+  }, this);
   _server._addClient(this);
   delete request;
 }
@@ -157,7 +161,8 @@ void AsyncEventSourceClient::write(const char * message, size_t len){
   _client.write(message, len);
 }
 
-void AsyncEventSourceClient::send(const char *message, const char *event, uint32_t id, uint32_t reconnect){
+void AsyncEventSourceClient::send(const char *message, const char *event,
+    uint32_t id, uint32_t reconnect){
   String ev = generateEventMessage(message, event, id, reconnect);
   write(ev.c_str(), ev.length());
 }
@@ -167,7 +172,9 @@ void AsyncEventSourceClient::send(const char *message, const char *event, uint32
 
 AsyncEventSource::AsyncEventSource(const String& url)
   : _url(url)
-  , _clients(LinkedList<AsyncEventSourceClient *>([](AsyncEventSourceClient *c){ delete c; }))
+  , _clients(LinkedList<AsyncEventSourceClient *>([](AsyncEventSourceClient *c){
+      delete c;
+    }))
   , _connectcb(NULL)
 {}
 
@@ -195,7 +202,8 @@ void AsyncEventSource::close(){
   }
 }
 
-void AsyncEventSource::send(const char *message, const char *event, uint32_t id, uint32_t reconnect){
+void AsyncEventSource::send(const char *message, const char *event,
+  uint32_t id, uint32_t reconnect){
   if(_clients.isEmpty())
     return;
 
@@ -218,7 +226,8 @@ bool AsyncEventSource::_canHandle(AsyncWebRequest const &request){
   return true;
 }
 
-bool AsyncEventSource::_isInterestingHeader(String const& key) {
+bool AsyncEventSource::_isInterestingHeader(AsyncWebRequest const &request,
+    String const& key) {
   return key.equalsIgnoreCase("Last-Event-ID");
 }
 

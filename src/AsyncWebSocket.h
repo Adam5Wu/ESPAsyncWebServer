@@ -36,10 +36,34 @@ typedef struct {
     uint64_t index;
 } AwsFrameInfo;
 
-typedef enum { WS_DISCONNECTED, WS_CONNECTED, WS_DISCONNECTING } AwsClientStatus;
-typedef enum { WS_CONTINUATION, WS_TEXT, WS_BINARY, WS_DISCONNECT = 0x08, WS_PING, WS_PONG } AwsFrameType;
-typedef enum { WS_MSG_SENDING, WS_MSG_SENT, WS_MSG_ERROR } AwsMessageStatus;
-typedef enum { WS_EVT_CONNECT, WS_EVT_DISCONNECT, WS_EVT_PONG, WS_EVT_ERROR, WS_EVT_DATA } AwsEventType;
+typedef enum {
+  WS_DISCONNECTED,
+  WS_CONNECTED,
+  WS_DISCONNECTING
+} AwsClientStatus;
+
+typedef enum {
+  WS_CONTINUATION,
+  WS_TEXT,
+  WS_BINARY,
+  WS_DISCONNECT = 0x08,
+  WS_PING,
+  WS_PONG
+} AwsFrameType;
+
+typedef enum {
+  WS_MSG_SENDING,
+  WS_MSG_SENT,
+  WS_MSG_ERROR
+} AwsMessageStatus;
+
+typedef enum {
+  WS_EVT_CONNECT,
+  WS_EVT_DISCONNECT,
+  WS_EVT_PONG,
+  WS_EVT_ERROR,
+  WS_EVT_DATA
+} AwsEventType;
 
 class AsyncWebSocketMessage {
   protected:
@@ -105,8 +129,8 @@ class AsyncWebSocketClient {
     //data packets
     void message(AsyncWebSocketMessage *message){ _queueMessage(message); }
 
-    size_t printf(const char *format, ...)  __attribute__ ((format (printf, 2, 3)));
-    size_t printf_P(PGM_P formatP, ...)  __attribute__ ((format (printf, 2, 3)));
+    size_t printf(const char *format, ...) __attribute__((format(printf, 2, 3)));
+    size_t printf_P(PGM_P formatP, ...) __attribute__((format(printf, 2, 3)));
 
     void text(const char * message, size_t len);
     void text(const char * message);
@@ -131,7 +155,8 @@ class AsyncWebSocketClient {
     void _onData(void *buf, size_t plen);
 };
 
-typedef std::function<void(AsyncWebSocket*, AsyncWebSocketClient*, AwsEventType, void*, uint8_t*, size_t)> AwsEventHandler;
+typedef std::function<void(AsyncWebSocket*, AsyncWebSocketClient*,
+  AwsEventType, void*, uint8_t*, size_t)> AwsEventHandler;
 
 //WebServer Handler implementation that plays the role of a socket server
 class AsyncWebSocket: public AsyncWebHandler {
@@ -190,10 +215,10 @@ class AsyncWebSocket: public AsyncWebHandler {
     void message(uint32_t id, AsyncWebSocketMessage *message);
     void messageAll(AsyncWebSocketMessage *message);
 
-    size_t printf(uint32_t id, const char *format, ...)  __attribute__ ((format (printf, 3, 4)));
-    size_t printfAll(const char *format, ...)  __attribute__ ((format (printf, 2, 3)));
-    size_t printf_P(uint32_t id, PGM_P formatP, ...)  __attribute__ ((format (printf, 3, 4)));
-    size_t printfAll_P(PGM_P formatP, ...)  __attribute__ ((format (printf, 2, 3)));
+    size_t printf(uint32_t id, const char *format, ...) __attribute__((format(printf, 3, 4)));
+    size_t printfAll(const char *format, ...) __attribute__((format(printf, 2, 3)));
+    size_t printf_P(uint32_t id, PGM_P formatP, ...) __attribute__((format(printf, 3, 4)));
+    size_t printfAll_P(PGM_P formatP, ...) __attribute__((format(printf, 2, 3)));
 
     //event listener
     void onEvent(AwsEventHandler handler){
@@ -204,9 +229,11 @@ class AsyncWebSocket: public AsyncWebHandler {
     uint32_t _getNextId(){ return _cNextId++; }
     void _addClient(AsyncWebSocketClient * client);
     void _handleDisconnect(AsyncWebSocketClient * client);
-    void _handleEvent(AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len);
+    void _handleEvent(AsyncWebSocketClient * client, AwsEventType type,
+      void * arg, uint8_t *data, size_t len);
 
-    virtual bool _isInterestingHeader(String const& key) override final;
+    virtual bool _isInterestingHeader(AsyncWebRequest const &request,
+      String const& key) override final;
     virtual bool _canHandle(AsyncWebRequest const &request) override final;
     virtual void _handleRequest(AsyncWebRequest &request) override final;
 };

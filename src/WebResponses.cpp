@@ -26,20 +26,19 @@ extern "C" {
 	#include "user_interface.h"
 }
 
-static String _PlatformAnnotation;
-
-String const& GetPlatformAnnotation(void) {
-	if (!_PlatformAnnotation) {
+String const& GetPlatformSignature(void) {
+	static String _PlatformSignature;
+	if (!_PlatformSignature) {
 #if defined(ESP8266)
-		_PlatformAnnotation.concat("ESP8266 NonOS-", 14);
-		_PlatformAnnotation.concat(system_get_sdk_version());
-		_PlatformAnnotation.concat(" ID#", 4);
-		_PlatformAnnotation.concat(system_get_chip_id(), 16);
-		_PlatformAnnotation.replace('(','[');
-		_PlatformAnnotation.replace(')',']');
+		_PlatformSignature.concat(F("ESP8266 SDK-"));
+		_PlatformSignature.concat(system_get_sdk_version());
+		_PlatformSignature.concat(F(" ID#"));
+		_PlatformSignature.concat(system_get_chip_id(), 16);
+		_PlatformSignature.replace('(','[');
+		_PlatformSignature.replace(')',']');
 #endif
 	}
-	return _PlatformAnnotation;
+	return _PlatformSignature;
 }
 
 /*
@@ -69,6 +68,9 @@ PGM_P AsyncWebResponse::_responseCodeToString(void) {
 		case 204: return PSTR("No Content");
 		case 205: return PSTR("Reset Content");
 		case 206: return PSTR("Partial Content");
+#ifdef HANDLE_WEBDAV
+		case 207: return PSTR("Multi-Status");
+#endif
 		case 300: return PSTR("Multiple Choices");
 		case 301: return PSTR("Moved Permanently");
 		case 302: return PSTR("Found");
@@ -184,10 +186,13 @@ void AsyncSimpleResponse::_assembleHead(void) {
 	_status.concat(FPSTR(_responseCodeToString()));
 	// Generate server header
 	_status.concat("\r\nServer: ",10);
-	_status.concat(_request->_server.VERTOKEN);
+	_status.concat(FPSTR(AsyncWebServer::VERTOKEN));
+#ifdef PLATFORM_SIGNATURE
 	_status.concat(" (",2);
-	_status.concat(GetPlatformAnnotation());
-	_status.concat(")\r\n",3);
+	_status.concat(GetPlatformSignature());
+	_status.concat(')');
+#endif
+	_status.concat("\r\n",2);
 
 	_headers.concat("\r\n",2);
 }

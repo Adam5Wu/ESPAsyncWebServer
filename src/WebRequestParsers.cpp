@@ -125,7 +125,8 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 					// Check if we can continue
 					if (__reqHandler()->_checkContinue(_request, _expectingContinue)) {
 #ifdef HANDLE_REQUEST_CONTENT
-						if (_request.contentLength()) {
+						size_t bodyLength = _request.contentLength();
+						if (bodyLength != -1 && bodyLength) {
 							// Switch parser
 							AsyncWebParser* newParser = nullptr;
 							for (auto& item : BodyParserRegistry) {
@@ -203,14 +204,23 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 		__setHost(value);
 		ESPWS_DEBUGV("[%s] + Host: '%s'\n",
 			_request._remoteIdent.c_str(), _request.host().c_str());
-	} else if (_temp.equalsIgnoreCase("User-Agent")) {
-		__setUserAgent(value);
-		ESPWS_DEBUGV("[%s] + User-Agent: '%s'\n",
-			_request._remoteIdent.c_str(), _request.userAgent().c_str());
 	} else if (_temp.equalsIgnoreCase("Accept")) {
 		__setAccept(value);
 		ESPWS_DEBUGV("[%s] + Accept: '%s'\n",
-			_request._remoteIdent.c_str(), _request.accept().c_str());
+		_request._remoteIdent.c_str(), _request.accept().c_str());
+	} else if (_temp.equalsIgnoreCase("Accept-Encoding")) {
+		__setAcceptEncoding(value);
+		ESPWS_DEBUGV("[%s] + Accept-Encoding: '%s'\n",
+		_request._remoteIdent.c_str(), _request.acceptEncoding().c_str());
+	} else if (_temp.equalsIgnoreCase("User-Agent")) {
+#ifdef REQUEST_USERAGENT
+		__setUserAgent(value);
+		ESPWS_DEBUGV("[%s] + User-Agent: '%s'\n",
+			_request._remoteIdent.c_str(), _request.userAgent().c_str());
+#else
+		ESPWS_DEBUGV("[%s] - User-Agent: '%s'\n",
+			_request._remoteIdent.c_str(), value.c_str());
+#endif
 #ifdef HANDLE_WEBDAV
 	} else if (_temp.equalsIgnoreCase("Translate")) {
 		__setTranslate(value.equalsIgnoreCase("T"));
@@ -220,9 +230,9 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 	} else if (_temp.equalsIgnoreCase("Connection")) {
 		ESPWS_DEBUGV("[%s] + Connection: %s\n",
 			_request._remoteIdent.c_str(), value.c_str());
-		if (value.equalsIgnoreCase("keep-alive")) {
+		if (value.equalsIgnoreCase(String(F("keep-alive")))) {
 			__setKeepAlive(true);
-		} else if (value.equalsIgnoreCase("close")) {
+		} else if (value.equalsIgnoreCase(String(F("close")))) {
 			__setKeepAlive(false);
 		} else {
 #ifdef STRICT_PROTOCOL
@@ -246,7 +256,7 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 			_request._remoteIdent.c_str(), _request.contentLength());
 	} else if (_temp.equalsIgnoreCase("Expect")) {
 		ESPWS_DEBUGV("[%s] + Expect: '%s'\n", _request._remoteIdent.c_str(), value.c_str());
-		if (value.equalsIgnoreCase("100-continue")) {
+		if (value.equalsIgnoreCase(String(F("100-continue")))) {
 			_expectingContinue = true;
 		} else {
 #ifdef STRICT_PROTOCOL
@@ -270,7 +280,7 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 			_handlerAttached = true;
 			_request._server._attachHandler(_request);
 		}
-		if (__reqHandler() && __reqHandler()->_isInterestingHeader(_temp)) {
+		if (__reqHandler() && __reqHandler()->_isInterestingHeader(_request, _temp)) {
 			ESPWS_DEBUGV("[%s] ! %s: '%s'\n",
 				_request._remoteIdent.c_str(), _temp.begin(), value.begin());
 			__addHeader(_temp, value);

@@ -100,6 +100,7 @@ class AsyncPathURIWebHandler: virtual public AsyncWebHandler {
 			return Ret;
 		}
 
+		bool _checkPathRedirectOrContinue(AsyncWebRequest &request, bool continueHeader);
 	public:
 		String const path;
 		WebRequestMethodComposite const method;
@@ -122,7 +123,17 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 		void _pathNotFound(AsyncWebRequest &request);
 
 		void _handleRead(AsyncWebRequest &request);
+
 #ifdef ADVANCED_STATIC_WEBHANDLER
+		struct UploadRec {
+			AsyncWebRequest* req;
+			File file;
+			size_t pos;
+		};
+		LinkedList<UploadRec> _uploads;
+		bool _checkContinueCanWrite(AsyncWebRequest &request, bool continueHeader);
+		bool _checkContinueCanDelete(AsyncWebRequest &request, bool continueHeader);
+
 		void _handleWrite(AsyncWebRequest &request);
 		void _handleDelete(AsyncWebRequest &request);
 #endif
@@ -139,9 +150,10 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 #endif
 		);
 
-		virtual bool _isInterestingHeader(String const& key) override;
+		virtual bool _isInterestingHeader(AsyncWebRequest const &request, String const& key) override;
 #ifdef ADVANCED_STATIC_WEBHANDLER
 		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;
+		virtual void _terminateRequest(AsyncWebRequest &request) override;
 #endif
 
 		AsyncStaticWebHandler& setCacheControl(const char* cache_control);
@@ -151,11 +163,17 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 		virtual void _handleRequest(AsyncWebRequest &request) override;
 
 #ifdef HANDLE_REQUEST_CONTENT
+
+#ifdef ADVANCED_STATIC_WEBHANDLER
+		virtual bool _handleBody(AsyncWebRequest &request,
+			size_t offset, void *buf, size_t size) override;
+#else
 		virtual bool _handleBody(AsyncWebRequest &request,
 			size_t offset, void *buf, size_t size) override {
 			// Do not expect request body
 			return false;
 		}
+#endif
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
 		virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
@@ -193,6 +211,23 @@ class AsyncCallbackWebHandler : virtual public AsyncWebHandler {
 
 #endif
 
+		bool _loaded(void) {
+			if (onRequest) return true;
+#ifdef HANDLE_REQUEST_CONTENT
+			if (onBody) return true;
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+			if (onParamData) return true;
+#endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+			if (onUploadData) return true;
+#endif
+
+#endif
+			return false;
+		}
+
 		virtual void _handleRequest(AsyncWebRequest &request) override {
 			if (onRequest) onRequest(request);
 			else request.send(500);
@@ -228,7 +263,7 @@ class AsyncPathURICallbackWebHandler: public AsyncPathURIWebHandler, public Asyn
 		AsyncPathURICallbackWebHandler(String const &path, WebRequestMethodComposite method = HTTP_ANY)
 			: AsyncPathURIWebHandler(path, method) {}
 
-		virtual bool _isInterestingHeader(String const& key) override
+		virtual bool _isInterestingHeader(AsyncWebRequest const &request, String const& key) override
 		{ return interestedHeaders.containsIgnoreCase(key); }
 };
 

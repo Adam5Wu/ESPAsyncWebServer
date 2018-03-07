@@ -182,7 +182,7 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
 	//, _url()
 	//, _host()
 	//, _contentType()
-	, _contentLength(0)
+	, _contentLength(-1)
 #ifdef HANDLE_AUTHENTICATION
 	, _session(nullptr)
 #endif
@@ -224,6 +224,9 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
 AsyncWebRequest::~AsyncWebRequest(){
 	delete _parser;
 	delete _response;
+	if (_handler) {
+		_handler->_terminateRequest(*this);
+	}
 #ifdef HANDLE_AUTHENTICATION
 	_setSession(nullptr);
 #endif
@@ -271,19 +274,25 @@ void AsyncWebRequest::_recycleClient(void) {
 	}
 	ESPWS_DEBUGV("[%s] Recycling connection...\n", _remoteIdent.c_str());
 
-	_handler = nullptr;
 	delete _response;
 	_response = nullptr;
+	if (_handler) {
+		_handler->_terminateRequest(*this);
+		_handler = nullptr;
+	}
 
 #ifdef HANDLE_AUTHENTICATION
 	_setSession(nullptr);
 #endif
+
+#ifdef SUPPORT_CGI
 	// Note: Enable the following block of CGI-like features are to be implemented
-/*
 	_url.clear(true);
 	_host.clear(true);
 	_accept.clear(true);
+#ifdef REQUEST_USERAGENT
 	_userAgent.clear(true);
+#endif
 	_contentType.clear(true);
 	_oUrl.clear(true);
 	_oQuery.clear(true);
@@ -298,10 +307,11 @@ void AsyncWebRequest::_recycleClient(void) {
 	_uploads.clear();
 #endif
 #endif
-*/
+
+#endif //SUPPORT_CGI
 
 	_method = HTTP_NONE;
-	_contentLength = 0;
+	_contentLength = -1;
 	_state = REQUEST_SETUP;
 	// Note: the following two fields are the reasons we are here, so no need to touch
 	//_keepAlive = true;
@@ -407,6 +417,7 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 			_state = REQUEST_ERROR;
 		}
 		// Free up resources no longer needed
+#ifndef SUPPORT_CGI
 		// NOTE: these resources should not be freed if CGI-like features are to be implemented
 		_contentType.clear(true);
 		_oUrl.clear(true);
@@ -421,17 +432,24 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 		_uploads.clear();
 #endif
 #endif
+
+#endif // SUPPORT_CGI
 	}
 
 	if (_state == REQUEST_RESPONSE) {
 		_client.setRxTimeout(0);
 		_response->_respond(*this);
 		// Free up resources no longer needed
+#ifndef SUPPORT_CGI
 		// NOTE: these resources should not be freed if CGI-like features are to be implemented
 		_url.clear(true);
 		_host.clear(true);
 		_accept.clear(true);
+#ifdef REQUEST_USERAGENT
 		_userAgent.clear(true);
+#endif
+
+#endif // SUPPORT_CGI
 	}
 }
 

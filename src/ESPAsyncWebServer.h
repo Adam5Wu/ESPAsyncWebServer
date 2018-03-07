@@ -84,8 +84,15 @@
 
 #define ADVANCED_STATIC_WEBHANDLER
 
-//#define ADVERTISE_ACCEPTRANGES
 #define HANDLE_WEBDAV
+
+//#define ADVERTISE_ACCEPTRANGES
+
+//#define PLATFORM_SIGNATURE
+
+//#define REQUEST_USERAGENT
+
+//#define SUPPORT_CGI // Provision for CGI support (not implemented)
 
 #define REQUEST_PARAM_MEMCACHE    1024
 #define REQUEST_PARAM_KEYMAX      128
@@ -256,7 +263,10 @@ class AsyncWebRequest {
 
 		String _host;
 		String _accept;
+		String _acceptEncoding;
+#ifdef REQUEST_USERAGENT
 		String _userAgent;
+#endif
 		String _contentType;
 		size_t _contentLength;
 
@@ -336,7 +346,11 @@ class AsyncWebRequest {
 
 		String const &host(void) const { return _host; }
 		String const &accept(void) const { return _accept; }
+		String const &acceptEncoding(void) const { return _acceptEncoding; }
+
+#ifdef REQUEST_USERAGENT
 		String const &userAgent(void) const { return _userAgent; }
+#endif
 
 		bool keepAlive(void) const { return _keepAlive; }
 #ifdef HANDLE_WEBDAV
@@ -541,9 +555,10 @@ typedef std::function<bool(AsyncWebRequest&, String const&, String const&, Strin
 
 class AsyncWebHandler : public AsyncWebFilterable {
 	public:
-		virtual bool _isInterestingHeader(String const& key) { return false; }
+		virtual bool _isInterestingHeader(AsyncWebRequest const &request, String const& key) { return false; }
 		virtual bool _canHandle(AsyncWebRequest const &request) { return false; }
 		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader);
+		virtual void _terminateRequest(AsyncWebRequest &request) { }
 
 		virtual void _handleRequest(AsyncWebRequest &request) = 0;
 #ifdef HANDLE_REQUEST_CONTENT
@@ -684,7 +699,7 @@ class AsyncWebServer {
 #endif
 
 	public:
-		static char const *VERTOKEN;
+		static PGM_P VERTOKEN;
 
 		AsyncWebServer(uint16_t port);
 		virtual ~AsyncWebServer(void);
@@ -747,7 +762,7 @@ class AsyncWebServer {
 			const char* indexFile = DEFAULT_INDEX_FILE,
 			const char* cache_control = DEFAULT_CACHE_CTRL
 #ifdef ADVANCED_STATIC_WEBHANDLER
-			, bool write_support = false
+			, bool write_support = true
 #endif
 		);
 

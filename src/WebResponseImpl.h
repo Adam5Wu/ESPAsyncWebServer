@@ -25,7 +25,7 @@
 
 #include <ESPAsyncWebServer.h>
 
-String const& GetPlatformAnnotation(void);
+String const& GetPlatformSignature(void);
 
 class AsyncSimpleResponse: public AsyncWebResponse {
 	private:
@@ -74,7 +74,7 @@ class AsyncBasicResponse: public AsyncSimpleResponse {
 #ifdef ADVERTISE_ACCEPTRANGES
 		bool _acceptRanges;
 #endif
-	
+
 		virtual void _assembleHead(void) override;
 		virtual void _kickstart(void)
 		{ if (!_contentLength) AsyncSimpleResponse::_kickstart(); }

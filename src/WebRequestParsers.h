@@ -44,14 +44,20 @@ class AsyncWebParser {
 			if (newHost) _request._host = std::move(newHost);
 			else { _request._host.clear(true); }
 		}
-		void __setUserAgent(String &newUserAgent) {
-			if (newUserAgent) _request._userAgent = std::move(newUserAgent);
-			else { _request._userAgent.clear(true); }
-		}
 		void __setAccept(String &newAccept) {
 			if (newAccept) _request._accept = std::move(newAccept);
 			else { _request._accept.clear(true); }
 		}
+		void __setAcceptEncoding(String &newAcceptEncoding) {
+			if (newAcceptEncoding) _request._acceptEncoding = std::move(newAcceptEncoding);
+			else { _request._acceptEncoding.clear(true); }
+		}
+#ifdef REQUEST_USERAGENT
+		void __setUserAgent(String &newUserAgent) {
+			if (newUserAgent) _request._userAgent = std::move(newUserAgent);
+			else { _request._userAgent.clear(true); }
+		}
+#endif
 #ifdef HANDLE_WEBDAV
 		void __setTranslate(bool state) { _request._translate = state; }
 #endif

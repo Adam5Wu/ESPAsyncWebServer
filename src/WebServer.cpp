@@ -72,7 +72,10 @@ bool ON_AP_FILTER(AsyncWebRequest const &request) {
 	return WiFi.localIP() != request._client.localIP();
 }
 
-char const *AsyncWebServer::VERTOKEN = "ESPAsyncHTTPd/0.1";
+#define SERVER_NAME "ESPAsyncHTTPD"
+#define SERVER_VERSION "0.5"
+
+PGM_P AsyncWebServer::VERTOKEN PROGMEM_L = SERVER_NAME "/" SERVER_VERSION;
 
 #ifdef HANDLE_AUTHENTICATION
 
@@ -96,7 +99,9 @@ static SessionAuthority ANONYMOUS_SESSIONS(&ANONYMOUS_AUTH, &ANONYMOUS_AUTH);
 
 class AsyncCatchAllCallbackWebHandler : public AsyncCallbackWebHandler {
 	public:
-		virtual bool _isInterestingHeader(String const& key) override { return true; }
+		virtual bool _isInterestingHeader(AsyncWebRequest const &request,
+			String const& key) override
+		{ return _loaded(); }
 };
 
 AsyncWebServer::AsyncWebServer(uint16_t port)
