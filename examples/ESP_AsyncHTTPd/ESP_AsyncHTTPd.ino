@@ -12,18 +12,12 @@
 
 #define NO_GLOBAL_SPIFFS
 
+#include <sntp.h>
 #include <vfatfs_api.h>
 #include <ESP8266WiFi.h>
 #include <ESPAsyncWebServer.h>
 
 #include <sys/time.h>
-
-extern "C" {
-  #include "lwip/inet.h"
-  #include "lwip/err.h"
-  #include "lwip/sntp.h"
-  #include "lwip/app/espconn.h"
-}
 
 #define TIMEZONE    -(5*3600)
 #define DSTOFFSET   0 // 3600
@@ -50,8 +44,6 @@ void setup() {
   Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
   Serial.printf("Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
   Serial.printf("Name Server: %s\n", WiFi.dnsIP().toString().c_str());
-
-  espconn_tcp_set_max_con(10);
 
   delay(500);
   configTime(TIMEZONE,DSTOFFSET,NTPSERVER);
