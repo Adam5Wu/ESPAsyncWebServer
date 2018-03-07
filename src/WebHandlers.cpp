@@ -573,7 +573,7 @@ void AsyncStaticWebHandler::_handleWrite(AsyncWebRequest &request) {
 	} else {
 		ESPWS_DEBUG("[%s] WARNING: Upload file rename failed '%s' -> '%s'\n",
 			request._remoteIdent.c_str(),
-			pathGetEntryName(rec.file.name()).c_str(), upname.c_str());
+			pathGetEntryName(rec.file.name()), upname.c_str());
 		request.send(500);
 		return;
 	}

@@ -274,6 +274,10 @@ void AsyncWebServer::loadACL(Stream &source) {
 			continue;
 		}
 		HTTPACL ACL(getQuotedToken(Ptr, ':'));
+		if (!ACL.PATH) {
+			ESPWS_DEBUG("WARNING: Empty path treated as comment!");
+			continue;
+		}
 		ACL.METHODS = parseMethods(getQuotedToken(Ptr, ':').begin());
 		ACL.IDENTS = _Auth->IDP->parseIdentities(Ptr);
 		if (!ACL.METHODS) {
@@ -845,7 +849,8 @@ WebACLMatchResult AsyncWebServer::_checkACL(AsyncWebRequest const &request, Auth
 	});
 	if (!eACL) return ACL_NOTFOUND;
 	return eACL->IDENTS.get_if([&](Identity * const &r){
-			return *r == session->IDENT;
+			return *r == session->IDENT || *r == IdentityProvider::ANONYMOUS ||
+				*r == IdentityProvider::AUTHENTICATED;
 		})? ACL_ALLOWED : ACL_NOTALLOWED;
 }
 
