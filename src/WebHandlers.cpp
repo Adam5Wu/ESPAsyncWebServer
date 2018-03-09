@@ -149,7 +149,7 @@ bool AsyncStaticWebHandler::_isInterestingHeader(AsyncWebRequest const &request,
 	switch (request.method()) {
 		case HTTP_GET:
 		case HTTP_HEAD:
-			return key.equalsIgnoreCase("If-None-Match");
+			return key.equalsIgnoreCase(FC("If-None-Match"));
 			break;
 	}
 	return false;
@@ -174,7 +174,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 
 		default:
 			ESPWS_DEBUG("WARNING: Unimplemented method '%s'\n",
-				request._server.mapMethod(request.method()));
+				SFPSTR(request._server.mapMethod(request.method())));
 			request.send(501);
 	}
 }
@@ -217,7 +217,8 @@ void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 		}
 	}
 
-	bool gzEncode = _GET_gzLookup && (request.acceptEncoding().indexOf("gzip") >= 0);
+	bool gzEncode = _GET_gzLookup &&
+		(request.acceptEncoding().indexOf(F("gzip")) >= 0);
 
 	File CWF;
 	// Handle file request path
@@ -273,7 +274,7 @@ void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 		time_t fm = CWF.mtime();
 		size_t fs = CWF.size();
 		etag = "W/\""+String(fs)+'@'+String(fm,16)+'"';
-		auto Header = request.getHeader(F("If-None-Match"));
+		auto Header = request.getHeader(FC("If-None-Match"));
 		if (Header != nullptr && Header->values.contains(etag)) {
 			request.send(304); // Not modified
 			return;
@@ -283,11 +284,11 @@ void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 	ESPWS_DEBUGVV("[%s] Serving '%s'\n", request._remoteIdent.c_str(), CWF.name());
 	AsyncWebResponse * response = new AsyncFileResponse(CWF, subpath);
 	if (_cache_control) {
-		response->addHeader(F("Cache-Control"), _cache_control);
-		response->addHeader(F("ETag"), etag);
+		response->addHeader(FC("Cache-Control"), _cache_control);
+		response->addHeader(FC("ETag"), etag);
 	}
 	if (gzEncode) {
-		response->addHeader(F("Content-Encoding"), F("gzip"));
+		response->addHeader(FC("Content-Encoding"), FC("gzip"));
 	}
 	request.send(response);
 }
@@ -305,19 +306,19 @@ void AsyncStaticWebHandler::_GET_sendDirList(AsyncWebRequest &request) {
 	uint32_t startTS = millis();
 	ESPWS_DEBUGV("[%s] Sending dir listing of '%s'\n", request._remoteIdent.c_str(), CWD.name());
 	String OvfBuf;
-	OvfBuf.concat(F("<html><head><title>Directory content of '"));
+	OvfBuf.concat(FC("<html><head><title>Directory content of '"));
 	OvfBuf.concat(request.url());
-	OvfBuf.concat(F("'</title><style>table{width:100%;border-collapse:collapse}"
+	OvfBuf.concat(FC("'</title><style>table{width:100%;border-collapse:collapse}"
 		"th{background:#DDD;text-align:right}th:first-child{text-align:left}"
 		"td{text-align:right}td:first-child{text-align:left}"
 		".footnote{font-size:small}.left{float:left}.right{float:right}</style><head>"
 		"<body><h1>Directory '"));
 	OvfBuf.concat(request.url());
-	OvfBuf.concat(F("'</h1><hr><table><thead>"
+	OvfBuf.concat(FC("'</h1><hr><table><thead>"
 		"<tr><th>Name</th><th>Content</th><th>Modification Time</th></tr>"
 		"</thead><tbody>"));
 	if (subpath)
-		OvfBuf.concat(F("<tr><td><a href='..'>(Parent folder)</a></td><td></td><td></td></tr>"));
+		OvfBuf.concat(FC("<tr><td><a href='..'>(Parent folder)</a></td><td></td><td></td></tr>"));
 	CWD.next(true);
 
 	auto response = request.beginChunkedResponse(200,
@@ -334,16 +335,16 @@ void AsyncStaticWebHandler::_GET_sendDirList(AsyncWebRequest &request) {
 					{
 						String EntryRef = CWD.entryName();
 						if (CWD.isEntryDir()) EntryRef.concat('/');
-						OvfBuf.concat(F("<tr><td><a href='"));
+						OvfBuf.concat(FC("<tr><td><a href='"));
 						OvfBuf.concat(EntryRef);
-						OvfBuf.concat(F("'>"));
+						OvfBuf.concat(FC("'>"));
 						OvfBuf.concat(EntryRef);
 					}
-					OvfBuf.concat(F("</a></td><td>"));
+					OvfBuf.concat(FC("</a></td><td>"));
 					if (CWD.isEntryDir()) {
 						// Feed the dog before it bites
 						ESP.wdtFeed();
-						OvfBuf.concat(F("&lt;"));
+						OvfBuf.concat(FC("&lt;"));
 						Dir _subdir = CWD.openEntryDir();
 						if (_subdir) {
 							size_t file_count = 0, dir_count = 0;
@@ -354,41 +355,41 @@ void AsyncStaticWebHandler::_GET_sendDirList(AsyncWebRequest &request) {
 							if (file_count+dir_count) {
 								if (file_count) {
 									OvfBuf.concat(file_count);
-									OvfBuf.concat(F(" file"));
+									OvfBuf.concat(FC(" file"));
 									if (file_count>1) OvfBuf.concat('s');
 								}
 								if (dir_count) {
-									if (file_count) OvfBuf.concat(F(", "));
+									if (file_count) OvfBuf.concat(FC(", "));
 									OvfBuf.concat(dir_count);
-									OvfBuf.concat(F(" folder"));
+									OvfBuf.concat(FC(" folder"));
 									if (dir_count>1) OvfBuf.concat('s');
 								}
 							} else {
-								OvfBuf.concat(F("empty"));
+								OvfBuf.concat(FC("empty"));
 							}
 						} else {
-							OvfBuf.concat(F("inaccessible"));
+							OvfBuf.concat(FC("inaccessible"));
 						}
-						OvfBuf.concat(F("&gt;"));
+						OvfBuf.concat(FC("&gt;"));
 					} else {
 						OvfBuf.concat(ToString(CWD.entrySize(),SizeUnit::BYTE,true));
 					}
-					OvfBuf.concat(F("</td><td>"));
+					OvfBuf.concat(FC("</td><td>"));
 					time_t mtime = CWD.entryMtime();
 					char strbuf[30];
 					OvfBuf.concat(ctime_r(&mtime, strbuf));
-					OvfBuf.concat(F("</td></tr>"));
+					OvfBuf.concat(FC("</td></tr>"));
 					CWD.next();
 				} else {
 					uint32_t endTS = millis();
-					OvfBuf.concat(F("</tbody></table><hr><div class='footnote'>"
+					OvfBuf.concat(FC("</tbody></table><hr><div class='footnote'>"
 						"<span class='left'>Served by "));
 					OvfBuf.concat(FPSTR(AsyncWebServer::VERTOKEN));
-					OvfBuf.concat(F(" ("));
+					OvfBuf.concat(FC(" ("));
 					OvfBuf.concat(GetPlatformSignature());
-					OvfBuf.concat(F(")</span><span class='right'>Generated in "));
+					OvfBuf.concat(FC(")</span><span class='right'>Generated in "));
 					OvfBuf.concat(endTS-startTS);
-					OvfBuf.concat(F("ms</span></div></body></html>"));
+					OvfBuf.concat(FC("ms</span></div></body></html>"));
 					CWD = Dir();
 				}
 				size_t moveLen = OvfBuf.length() < len-outLen? OvfBuf.length(): len-outLen;
@@ -426,7 +427,7 @@ bool AsyncStaticWebHandler::_checkContinue(AsyncWebRequest &request, bool contin
 
 		default:
 			ESPWS_DEBUG("WARNING: Unimplemented method '%s'\n",
-			request._server.mapMethod(request.method()));
+				SFPSTR(request._server.mapMethod(request.method())));
 			request.send(501);
 			return false;
 	}
@@ -480,7 +481,7 @@ bool AsyncStaticWebHandler::_checkContinueCanWrite(AsyncWebRequest &request, boo
 
 	// Try create temporary upload file
 	String upload_path = subpath;
-	upload_path.concat(F("._upload_"));
+	upload_path.concat(FC("._upload_"));
 	File _file = _dir.openFile(upload_path.c_str(),"w");
 	if (!_file) {
 		ESPWS_DEBUGVV("[%s] Unable to create upload file: '%s'\n",

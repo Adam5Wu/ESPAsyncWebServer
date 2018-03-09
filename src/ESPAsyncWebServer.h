@@ -164,8 +164,10 @@ class AsyncWebHeader {
 		String name;
 		StringArray values;
 
-		AsyncWebHeader(String const &n, String const &v): name(n) { values.append(v); }
-		AsyncWebHeader(String &&n, String &&v): name(std::move(n)) { values.append(std::move(v)); }
+		AsyncWebHeader(String const &n, String const &v): name(n)
+		{ values.append(v); }
+		AsyncWebHeader(String &&n, String &&v): name(std::move(n))
+		{ values.append(std::move(v)); }
 };
 
 /*
@@ -311,7 +313,7 @@ class AsyncWebRequest {
 		template<typename T>
 		T& _addUniqueNameVal(LinkedList<T>& storage, String &name, String &value) {
 			T* qPtr = storage.get_if([&](T const &v) {
-				return name.equals(v.name);
+				return name == v.name;
 			});
 			if (qPtr) {
 				ESPWS_DEBUG_S(T,"[%s] WARNING: Override value '%s' of duplicate key '%s'\n",
@@ -325,7 +327,7 @@ class AsyncWebRequest {
 		}
 
 		void _recycleClient(void);
-		ESPWS_DEBUGDO(const char* _stateToString(void) const);
+		ESPWS_DEBUGDO(PGM_P _stateToString(void) const);
 
 	public:
 		AsyncClient &_client;
@@ -339,7 +341,7 @@ class AsyncWebRequest {
 
 		uint8_t version(void) const { return _version; }
 		WebRequestMethod method(void) const { return _method; }
-		const char * methodToString(void) const;
+		PGM_P methodToString(void) const;
 		String const &url(void) const { return _url; }
 		String const &oUrl(void) const { return _oUrl; }
 		String const &oQuery(void) const { return _oQuery; }
@@ -358,7 +360,8 @@ class AsyncWebRequest {
 #endif
 
 		String const &contentType(void) const { return _contentType; }
-		bool contentType(String const &type) const { return _contentType.equalsIgnoreCase(type); }
+		bool contentType(String const &type) const
+		{ return _contentType.equalsIgnoreCase(type); }
 		size_t contentLength(void) const { return _contentLength; }
 
 #ifdef HANDLE_AUTHENTICATION
@@ -493,7 +496,7 @@ class AsyncWebResponse {
 		inline bool _finished(void) const { return _state > RESPONSE_WAIT_ACK; }
 		inline bool _failed(void) const { return _state == RESPONSE_FAILED; }
 
-		ESPWS_DEBUGDO(const char* _stateToString(void) const);
+		ESPWS_DEBUGDO(PGM_P _stateToString(void) const);
 };
 
 /*
@@ -555,7 +558,8 @@ typedef std::function<bool(AsyncWebRequest&, String const&, String const&, Strin
 
 class AsyncWebHandler : public AsyncWebFilterable {
 	public:
-		virtual bool _isInterestingHeader(AsyncWebRequest const &request, String const& key) { return false; }
+		virtual bool _isInterestingHeader(AsyncWebRequest const &request, String const& key)
+		{ return false; }
 		virtual bool _canHandle(AsyncWebRequest const &request) { return false; }
 		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader);
 		virtual void _terminateRequest(AsyncWebRequest &request) { }
@@ -622,8 +626,8 @@ struct AsyncWebAuth {
 
 	AsyncWebAuth(WebAuthHeaderState state, WebAuthType type)
 		: State(state), Type(type), NRec(nullptr) {}
-	ESPWS_DEBUGDO(const char* _stateToString(void) const);
-	ESPWS_DEBUGDO(const char* _typeToString(void) const);
+	ESPWS_DEBUGDO(PGM_P _stateToString(void) const);
+	ESPWS_DEBUGDO(PGM_P _typeToString(void) const);
 };
 
 class WebAuthSession : public AuthSession {
@@ -715,15 +719,15 @@ class AsyncWebServer {
 		void beginSecure(const char *cert, const char *private_key_file, const char *password);
 #endif
 
-		AsyncWebRewrite* addRewrite(AsyncWebRewrite* rewrite) {
-			return _rewrites.append(rewrite), rewrite;
+		AsyncWebRewrite& addRewrite(AsyncWebRewrite* rewrite) {
+			return _rewrites.append(rewrite), *rewrite;
 		}
 		bool removeRewrite(AsyncWebRewrite* rewrite) { return _rewrites.remove(rewrite); }
-		AsyncWebRewrite* rewrite(const char* from, const char* to)
+		AsyncWebRewrite& rewrite(const char* from, const char* to)
 		{ return addRewrite(new AsyncWebSimpleRewrite(from, to)); }
 
-		AsyncWebHandler* addHandler(AsyncWebHandler* handler) {
-			return _handlers.append(handler), handler;
+		AsyncWebHandler& addHandler(AsyncWebHandler* handler) {
+			return _handlers.append(handler), *handler;
 		}
 		bool removeHandler(AsyncWebHandler* handler) { return _handlers.remove(handler); }
 
@@ -798,7 +802,7 @@ class AsyncWebServer {
 
 		static WebRequestMethod parseMethod(char const *Str);
 		static WebRequestMethodComposite parseMethods(char *Str);
-		static const char* mapMethod(WebRequestMethod method);
+		static PGM_P mapMethod(WebRequestMethod method);
 		static String mapMethods(WebRequestMethodComposite methods);
 };
 

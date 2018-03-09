@@ -233,21 +233,21 @@ AsyncWebRequest::~AsyncWebRequest(){
 	Scheduler.deschedule(this);
 }
 
-const char * AsyncWebRequest::methodToString() const {
+PGM_P AsyncWebRequest::methodToString() const {
 	return AsyncWebServer::mapMethod(_method);
 }
 
-ESPWS_DEBUGDO(const char* AsyncWebRequest::_stateToString(void) const {
+ESPWS_DEBUGDO(PGM_P AsyncWebRequest::_stateToString(void) const {
 	switch (_state) {
-		case REQUEST_SETUP: return "Setup";
-		case REQUEST_START: return "Start";
-		case REQUEST_HEADERS: return "Headers";
-		case REQUEST_BODY: return "Body";
-		case REQUEST_RECEIVED: return "Received";
-		case REQUEST_RESPONSE: return "Response";
-		case REQUEST_ERROR: return "Error";
-		case REQUEST_FINALIZE: return "Finalize";
-		default: return "???";
+		case REQUEST_SETUP: return PSTR_C("Setup");
+		case REQUEST_START: return PSTR_C("Start");
+		case REQUEST_HEADERS: return PSTR_C("Headers");
+		case REQUEST_BODY: return PSTR_C("Body");
+		case REQUEST_RECEIVED: return PSTR_C("Received");
+		case REQUEST_RESPONSE: return PSTR_C("Response");
+		case REQUEST_ERROR: return PSTR_C("Error");
+		case REQUEST_FINALIZE: return PSTR_C("Finalize");
+		default: return PSTR_C("???");
 	}
 })
 
@@ -378,7 +378,7 @@ void AsyncWebRequest::_onTimeout(uint32_t time){
 
 void AsyncWebRequest::_onDisconnect(){
 	ESPWS_DEBUGV("[%s] DISCONNECT, response state: %s\n", _remoteIdent.c_str(),
-		_response? _response->_stateToString() : "(None)");
+		SFPSTR(_response? _response->_stateToString() : PSTR_C("(None)")));
 	_state = REQUEST_FINALIZE;
 }
 
@@ -406,8 +406,9 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 	if (len) {
 		ESPWS_DEBUG("[%s] On-Data: ignored extra data of %d bytes [%s] "
 			"[Parser: %s] [Response: %s]\n", _remoteIdent.c_str(),
-			len, _stateToString(), _parser? _parser->_stateToString() : "N/A",
-			_response? _response->_stateToString() : "N/A");
+			len, SFPSTR(_stateToString()),
+			SFPSTR(_parser? _parser->_stateToString() : PSTR_C("N/A")),
+			SFPSTR(_response? _response->_stateToString() : PSTR_C("N/A")));
 	}
 
 	if (_state == REQUEST_RECEIVED) {
@@ -513,7 +514,7 @@ bool AsyncWebRequest::hasQuery(String const &name) const {
 
 AsyncWebQuery const* AsyncWebRequest::getQuery(String const &name) const {
 	return _queries.get_if([&](AsyncWebQuery const &v) {
-		return name.equals(v.name);
+		return name == v.name;
 	});
 }
 
@@ -526,7 +527,7 @@ bool AsyncWebRequest::hasParam(String const &name) const {
 
 AsyncWebParam const* AsyncWebRequest::getParam(String const &name) const {
 	return _params.get_if([&](AsyncWebParam const &v) {
-		return name.equals(v.name);
+		return name == v.name;
 	});
 }
 #endif
@@ -538,7 +539,7 @@ bool AsyncWebRequest::hasUpload(String const &name) const {
 
 AsyncWebUpload const* AsyncWebRequest::getUpload(String const &name) const {
 	return _uploads.get_if([&](AsyncWebUpload const &v) {
-		return name.equals(v.name);
+		return name == v.name;
 	});
 }
 #endif
@@ -608,6 +609,6 @@ AsyncWebResponse *AsyncWebRequest::beginResponse_P(int code, PGM_P content,
 
 void AsyncWebRequest::redirect(String const &url){
 	AsyncWebResponse *response = beginResponse(302);
-	response->addHeader(F("Location"), url);
+	response->addHeader(FC("Location"), url);
 	send(response);
 }

@@ -30,9 +30,9 @@ String const& GetPlatformSignature(void) {
 	static String _PlatformSignature;
 	if (!_PlatformSignature) {
 #if defined(ESP8266)
-		_PlatformSignature.concat(F("ESP8266 SDK-"));
+		_PlatformSignature.concat(FC("ESP8266 SDK-"));
 		_PlatformSignature.concat(system_get_sdk_version());
-		_PlatformSignature.concat(F(" ID#"));
+		_PlatformSignature.concat(FC(" ID#"));
 		_PlatformSignature.concat(system_get_chip_id(), 16);
 		_PlatformSignature.replace('(','[');
 		_PlatformSignature.replace(')',']');
@@ -59,50 +59,50 @@ AsyncWebResponse::~AsyncWebResponse(void) {
 
 PGM_P AsyncWebResponse::_responseCodeToString(void) {
 	switch (_code) {
-		case 100: return PSTR("Continue");
-		case 101: return PSTR("Switching Protocols");
-		case 200: return PSTR("OK");
-		case 201: return PSTR("Created");
-		case 202: return PSTR("Accepted");
-		case 203: return PSTR("Non-Authoritative Information");
-		case 204: return PSTR("No Content");
-		case 205: return PSTR("Reset Content");
-		case 206: return PSTR("Partial Content");
+		case 100: return PSTR_C("Continue");
+		case 101: return PSTR_C("Switching Protocols");
+		case 200: return PSTR_C("OK");
+		case 201: return PSTR_C("Created");
+		case 202: return PSTR_C("Accepted");
+		case 203: return PSTR_C("Non-Authoritative Information");
+		case 204: return PSTR_C("No Content");
+		case 205: return PSTR_C("Reset Content");
+		case 206: return PSTR_C("Partial Content");
 #ifdef HANDLE_WEBDAV
-		case 207: return PSTR("Multi-Status");
+		case 207: return PSTR_C("Multi-Status");
 #endif
-		case 300: return PSTR("Multiple Choices");
-		case 301: return PSTR("Moved Permanently");
-		case 302: return PSTR("Found");
-		case 303: return PSTR("See Other");
-		case 304: return PSTR("Not Modified");
-		case 305: return PSTR("Use Proxy");
-		case 307: return PSTR("Temporary Redirect");
-		case 400: return PSTR("Bad Request");
-		case 401: return PSTR("Unauthorized");
-		case 402: return PSTR("Payment Required");
-		case 403: return PSTR("Forbidden");
-		case 404: return PSTR("Not Found");
-		case 405: return PSTR("Method Not Allowed");
-		case 406: return PSTR("Not Acceptable");
-		case 407: return PSTR("Proxy Authentication Required");
-		case 408: return PSTR("Request Time-out");
-		case 409: return PSTR("Conflict");
-		case 410: return PSTR("Gone");
-		case 411: return PSTR("Length Required");
-		case 412: return PSTR("Precondition Failed");
-		case 413: return PSTR("Request Entity Too Large");
-		case 414: return PSTR("Request-URI Too Large");
-		case 415: return PSTR("Unsupported Media Type");
-		case 416: return PSTR("Requested range not satisfiable");
-		case 417: return PSTR("Expectation Failed");
-		case 500: return PSTR("Internal Server Error");
-		case 501: return PSTR("Not Implemented");
-		case 502: return PSTR("Bad Gateway");
-		case 503: return PSTR("Service Unavailable");
-		case 504: return PSTR("Gateway Time-out");
-		case 505: return PSTR("HTTP Version not supported");
-		default:  return PSTR("? Unknown Status Code ?");
+		case 300: return PSTR_C("Multiple Choices");
+		case 301: return PSTR_C("Moved Permanently");
+		case 302: return PSTR_C("Found");
+		case 303: return PSTR_C("See Other");
+		case 304: return PSTR_C("Not Modified");
+		case 305: return PSTR_C("Use Proxy");
+		case 307: return PSTR_C("Temporary Redirect");
+		case 400: return PSTR_C("Bad Request");
+		case 401: return PSTR_C("Unauthorized");
+		case 402: return PSTR_C("Payment Required");
+		case 403: return PSTR_C("Forbidden");
+		case 404: return PSTR_C("Not Found");
+		case 405: return PSTR_C("Method Not Allowed");
+		case 406: return PSTR_C("Not Acceptable");
+		case 407: return PSTR_C("Proxy Authentication Required");
+		case 408: return PSTR_C("Request Time-out");
+		case 409: return PSTR_C("Conflict");
+		case 410: return PSTR_C("Gone");
+		case 411: return PSTR_C("Length Required");
+		case 412: return PSTR_C("Precondition Failed");
+		case 413: return PSTR_C("Request Entity Too Large");
+		case 414: return PSTR_C("Request-URI Too Large");
+		case 415: return PSTR_C("Unsupported Media Type");
+		case 416: return PSTR_C("Requested range not satisfiable");
+		case 417: return PSTR_C("Expectation Failed");
+		case 500: return PSTR_C("Internal Server Error");
+		case 501: return PSTR_C("Not Implemented");
+		case 502: return PSTR_C("Bad Gateway");
+		case 503: return PSTR_C("Service Unavailable");
+		case 504: return PSTR_C("Gateway Time-out");
+		case 505: return PSTR_C("HTTP Version not supported");
+		default:  return PSTR_C("? Unknown Status Code ?");
 	}
 }
 
@@ -123,15 +123,15 @@ void AsyncWebResponse::_respond(AsyncWebRequest &request) {
 	_request = &request;
 }
 
-ESPWS_DEBUGDO(const char* AsyncWebResponse::_stateToString(void) const {
+ESPWS_DEBUGDO(PGM_P AsyncWebResponse::_stateToString(void) const {
 	switch (_state) {
-		case RESPONSE_SETUP: return "Setup";
-		case RESPONSE_HEADERS: return "Headers";
-		case RESPONSE_CONTENT: return "Content";
-		case RESPONSE_WAIT_ACK: return "WaitAck";
-		case RESPONSE_END: return "End";
-		case RESPONSE_FAILED: return "Failed";
-		default: return "???";
+		case RESPONSE_SETUP: return PSTR_C("Setup");
+		case RESPONSE_HEADERS: return PSTR_C("Headers");
+		case RESPONSE_CONTENT: return PSTR_C("Content");
+		case RESPONSE_WAIT_ACK: return PSTR_C("WaitAck");
+		case RESPONSE_END: return PSTR_C("End");
+		case RESPONSE_FAILED: return PSTR_C("Failed");
+		default: return PSTR_C("???");
 	}
 })
 
@@ -146,12 +146,12 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
 #ifndef HANDLE_AUTHENTICATION
 		ESPWS_LOG("[%s:%d] %d %s %s %s\n",
 			request._client.remoteIP().toString().c_str(), request._client.remotePort(),
-			_code, request.methodToString(), request.host().c_str(), request.url().c_str());
+			_code, SFPSTR(request.methodToString()), request.host().c_str(), request.url().c_str());
 #else
 		ESPWS_LOG("[%s:%d (%s)] %d %s %s %s\n",
 			request._client.remoteIP().toString().c_str(), request._client.remotePort(),
 			request.session() ? request.session()->IDENT.ID.c_str() : UNKNOWN_ID,
-			_code, request.methodToString(), request.host().c_str(), request.url().c_str());
+			_code, SFPSTR(request.methodToString()), request.host().c_str(), request.url().c_str());
 #endif
 		_assembleHead();
 		_state = RESPONSE_HEADERS;
@@ -162,7 +162,7 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
 		_kickstart();
 	} else {
 		ESPWS_DEBUG("[%s] Unexpected response state: %s\n",
-			_request->_remoteIdent.c_str(), _stateToString());
+			_request->_remoteIdent.c_str(), SFPSTR(_stateToString()));
 		_state = RESPONSE_FAILED;
 	}
 }
@@ -170,9 +170,9 @@ void AsyncSimpleResponse::_respond(AsyncWebRequest &request) {
 void AsyncSimpleResponse::_assembleHead(void) {
 	uint8_t version = _request->version();
 	if (!_request->keepAlive()) {
-		addHeader(F("Connection"), F("close"));
+		addHeader(FC("Connection"), FC("close"));
 	} else if (!version) {
-		addHeader(F("Connection"), F("keep-alive"));
+		addHeader(FC("Connection"), FC("keep-alive"));
 	}
 
 	ESPWS_DEBUGVV("[%s]--- Headers Start ---\n%s--- Headers End ---\n",
@@ -333,19 +333,19 @@ AsyncBasicResponse::AsyncBasicResponse(int code, String const &contentType)
 
 void AsyncBasicResponse::_assembleHead(void) {
 	if (_contentLength && _contentLength != -1) {
-		addHeader(F("Content-Length"), String(_contentLength));
+		addHeader(FC("Content-Length"), String(_contentLength));
 #ifdef ADVERTISE_ACCEPTRANGES
 		if (_request->version()) {
-			addHeader(F("Accept-Ranges"), _acceptRanges ? F("bytes") : F("none"));
+			addHeader(FC("Accept-Ranges"), _acceptRanges ? FC("bytes") : FC("none"));
 		}
 #endif
 	}
 	if (_contentType) {
-		addHeader(F("Content-Type"), _contentType);
+		addHeader(FC("Content-Type"), _contentType);
 		_contentType.clear(true);
 	} else if (_contentLength && _contentLength != -1) {
 		// Make a safe (conservative) guess
-		addHeader(F("Content-Type"), F("application/octet-stream"));
+		addHeader(FC("Content-Type"), FC("application/octet-stream"));
 	}
 
 	AsyncSimpleResponse::_assembleHead();
@@ -483,33 +483,35 @@ AsyncFileResponse::AsyncFileResponse(File const& content, String const &path,
 			int extensionStart = path.lastIndexOf('.')+1;
 			String extension = path.begin() + extensionStart;
 
-			if (extension == "htm" || extension == "html") _contentType = F("text/html");
-			else if (extension == "css") _contentType = F("text/css");
-			else if (extension == "json") _contentType = F("text/json");
-			else if (extension == "js") _contentType = F("application/javascript");
-			else if (extension == "png") _contentType = F("image/png");
-			else if (extension == "gif") _contentType = F("image/gif");
-			else if (extension == "jpg" || extension == "jpeg") _contentType = F("image/jpeg");
-			else if (extension == "ico") _contentType = F("image/x-icon");
-			else if (extension == "svg") _contentType = F("image/svg+xml");
-			else if (extension == "eot") _contentType = F("font/eot");
-			else if (extension == "woff") _contentType = F("font/woff");
-			else if (extension == "woff2") _contentType = F("font/woff2");
-			else if (extension == "ttf") _contentType = F("font/ttf");
-			else if (extension == "xml") _contentType = F("text/xml");
-			else if (extension == "txt") _contentType = F("text/plain");
-			else if (extension == "xhtml") _contentType = F("application/xhtml+xml");
-			else if (extension == "pdf") _contentType = F("application/pdf");
-			else if (extension == "zip") _contentType = F("application/zip");
-			else if (extension == "gz") _contentType = F("application/x-gzip");
-			//else _contentType = F("application/octet-stream");
+			if (extension == FC("htm") || extension == FC("html"))
+				_contentType = FC("text/html");
+			else if (extension == FC("css")) _contentType = FC("text/css");
+			else if (extension == FC("json")) _contentType = FC("text/json");
+			else if (extension == FC("js")) _contentType = FC("application/javascript");
+			else if (extension == FC("png")) _contentType = FC("image/png");
+			else if (extension == FC("gif")) _contentType = FC("image/gif");
+			else if (extension == FC("jpg") || extension == FC("jpeg"))
+				_contentType = FC("image/jpeg");
+			else if (extension == FC("ico")) _contentType = FC("image/x-icon");
+			else if (extension == FC("svg")) _contentType = FC("image/svg+xml");
+			else if (extension == FC("eot")) _contentType = FC("font/eot");
+			else if (extension == FC("woff")) _contentType = FC("font/woff");
+			else if (extension == FC("woff2")) _contentType = FC("font/woff2");
+			else if (extension == FC("ttf")) _contentType = FC("font/ttf");
+			else if (extension == FC("xml")) _contentType = FC("text/xml");
+			else if (extension == FC("txt")) _contentType = FC("text/plain");
+			else if (extension == FC("xhtml")) _contentType = FC("application/xhtml+xml");
+			else if (extension == FC("pdf")) _contentType = FC("application/pdf");
+			else if (extension == FC("zip")) _contentType = FC("application/zip");
+			else if (extension == FC("gz")) _contentType = FC("application/x-gzip");
+			//else _contentType = FC("application/octet-stream");
 		}
 
 		if (download) {
 			size_t filenameStart = path.lastIndexOf('/') + 1;
 			char buf[26+path.length()-filenameStart];
-			snprintf_P(buf, sizeof(buf), PSTR("attachment; filename=\"%s\""), path.begin()+filenameStart);
-			addHeader(F("Content-Disposition"), buf);
+			snprintf_P(buf, sizeof(buf), PSTR_C("attachment; filename=\"%s\""), path.begin()+filenameStart);
+			addHeader(FC("Content-Disposition"), buf);
 		}
 	}
 }
@@ -623,7 +625,7 @@ AsyncChunkedResponse::AsyncChunkedResponse(int code, AwsResponseFiller callback,
 
 void AsyncChunkedResponse::_assembleHead(void){
 	if (_request->version()) {
-		addHeader(F("Transfer-Encoding"), F("chunked"));
+		addHeader(FC("Transfer-Encoding"), FC("chunked"));
 	} else {
 		_code = 505;
 		_contentLength = 0; // Prevents fillBuffer from being called

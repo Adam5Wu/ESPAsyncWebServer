@@ -103,14 +103,14 @@ class AsyncWebParser {
 
 #endif
 
-		ESPWS_DEBUGDO(const char* __strState(void) { return _request._stateToString(); })
+		ESPWS_DEBUGDO(PGM_P __strState(void) { return _request._stateToString(); })
 
 	public:
 		AsyncWebParser(AsyncWebRequest &request) : _request(request) {}
 		virtual ~AsyncWebParser(void) {}
 
 		virtual void _parse(void *&buf, size_t &len) = 0;
-		ESPWS_DEBUGDO(virtual const char* _stateToString(void) const = 0);
+		ESPWS_DEBUGDO(virtual PGM_P _stateToString(void) const = 0);
 };
 
 /*
@@ -152,7 +152,7 @@ class AsyncRequestHeadParser: public AsyncWebParser {
 		void _rejectAuth(AuthSession *session);
 #endif
 
-		ESPWS_DEBUGDO(const char* _stateToString(void) const override);
+		ESPWS_DEBUGDO(PGM_P _stateToString(void) const override);
 };
 
 #ifdef HANDLE_REQUEST_CONTENT
@@ -170,8 +170,8 @@ class AsyncRequestPassthroughContentParser: public AsyncWebParser {
 
 		virtual void _parse(void *&buf, size_t &len) override;
 
-		ESPWS_DEBUGDO(const char* _stateToString(void) const override {
-			return "Pass-through";
+		ESPWS_DEBUGDO(PGM_P _stateToString(void) const override {
+			return PSTR_L("Pass-through");
 		})
 };
 

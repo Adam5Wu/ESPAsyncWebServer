@@ -94,12 +94,6 @@ class AsyncPathURIWebHandler: virtual public AsyncWebHandler {
 			request.redirect(newLocation);
 		}
 
-		static String normalizePath(String const &p) {
-			String Ret = p[0]=='/'? p : "/"+p;
-			if (p.end()[-1] != '/' && p.end()[-1] != '$') Ret.concat('/');
-			return Ret;
-		}
-
 		bool _checkPathRedirectOrContinue(AsyncWebRequest &request, bool continueHeader);
 	public:
 		String const path;
@@ -110,6 +104,12 @@ class AsyncPathURIWebHandler: virtual public AsyncWebHandler {
 
 		virtual bool _canHandle(AsyncWebRequest const &request) override;
 		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;
+
+		static String normalizePath(String const &p) {
+			String Ret = p[0]=='/'? p : "/"+p;
+			if (p.end()[-1] != '/' && p.end()[-1] != '$') Ret.concat('/');
+			return Ret;
+		}
 };
 
 class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
