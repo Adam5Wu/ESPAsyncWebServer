@@ -99,7 +99,7 @@
 
 #define DEFAULT_IDLE_TIMEOUT      10        // Unit s
 #define DEFAULT_ACK_TIMEOUT       10 * 1000 // Unit ms
-#define DEFAULT_CACHE_CTRL        "public, no-cache"
+#define DEFAULT_CACHE_CTRL        "private, no-cache"
 #define DEFAULT_INDEX_FILE        "index.htm"
 
 #ifdef HANDLE_AUTHENTICATION
@@ -697,6 +697,8 @@ class AsyncWebServer {
 
 			HTTPACL(String const &p): PATH(p), METHODS(HTTP_NONE), IDENTS(nullptr) {}
 			HTTPACL(String &&p): PATH(std::move(p)), METHODS(HTTP_NONE), IDENTS(nullptr) {}
+			HTTPACL(String &&p, WebRequestMethodComposite m, LinkedList<Identity*> &&i)
+				: PATH(std::move(p)), METHODS(m), IDENTS(std::move(i)) {}
 		};
 		LinkedList<HTTPACL> _ACLs;
 		void loadACL(Stream &source);
@@ -767,6 +769,9 @@ class AsyncWebServer {
 			const char* cache_control = DEFAULT_CACHE_CTRL
 #ifdef ADVANCED_STATIC_WEBHANDLER
 			, bool write_support = true
+#ifdef HANDLE_WEBDAV
+			, bool dav_support = true
+#endif
 #endif
 		);
 
@@ -797,7 +802,11 @@ class AsyncWebServer {
 		WebAuthSession* _authSession(AsyncWebAuth &authInfo, AsyncWebRequest const &request) const;
 		void _genAuthHeader(AsyncWebResponse &response, AsyncWebRequest const &request,
 			bool renew, NONCEREC const *NRec) const;
-		WebACLMatchResult _checkACL(AsyncWebRequest const &request, AuthSession* session) const;
+		WebACLMatchResult _checkACL(WebRequestMethod method, String const &Url,
+			AuthSession* session) const;
+		size_t _prependACL(String &&url, WebRequestMethodComposite methods,
+			LinkedList<Identity*> &&idents)
+		{ _ACLs.prepend({std::move(url), methods, std::move(idents)}); }
 #endif
 
 		static WebRequestMethod parseMethod(char const *Str);

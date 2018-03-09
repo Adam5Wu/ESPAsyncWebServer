@@ -123,10 +123,7 @@ AsyncWebServer::AsyncWebServer(uint16_t port)
 		((AsyncWebServer*)arg)->_handleClient(c);
 	}, this);
 #ifdef HANDLE_AUTHENTICATION
-	HTTPACL ACL("/");
-	ACL.METHODS = HTTP_BASIC_READ;
-	ACL.IDENTS.append(&IdentityProvider::ANONYMOUS);
-	_ACLs.append(std::move(ACL));
+	_prependACL("/", HTTP_BASIC_READ, {nullptr, {&IdentityProvider::ANONYMOUS}});
 #endif
 }
 
@@ -389,11 +386,17 @@ AsyncStaticWebHandler& AsyncWebServer::serveStatic(const char* uri, Dir const& d
 	const char* indexFile, const char* cache_control
 #ifdef ADVANCED_STATIC_WEBHANDLER
 	, bool write_support
+#ifdef HANDLE_WEBDAV
+	, bool dav_support
+#endif
 #endif
 	){
 	AsyncStaticWebHandler* handler = new AsyncStaticWebHandler(uri, dir, cache_control
 #ifdef ADVANCED_STATIC_WEBHANDLER
 		, write_support
+#ifdef HANDLE_WEBDAV
+		, dav_support
+#endif
 #endif
 	);
 	if (indexFile) handler->setGETIndexFile(indexFile);
@@ -841,11 +844,12 @@ void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest 
 	}
 }
 
-WebACLMatchResult AsyncWebServer::_checkACL(AsyncWebRequest const &request, AuthSession* session) const {
+WebACLMatchResult AsyncWebServer::_checkACL(WebRequestMethod method,
+	String const &Url, AuthSession* session) const {
 	HTTPACL* eACL = _ACLs.get_if([&](HTTPACL const &r) {
-		if (r.METHODS & request.method() == 0) return false;
-		return (r.PATH.end()[-1] == '/')? request.url().startsWith(r.PATH)
-			: (request.url() == r.PATH);
+		if (r.METHODS & method == 0) return false;
+		return (r.PATH.end()[-1] == '/')? Url.startsWith(r.PATH)
+			: (Url == r.PATH);
 	});
 	if (!eACL) return ACL_NOTFOUND;
 	return eACL->IDENTS.get_if([&](Identity * const &r){

@@ -258,7 +258,7 @@ WebACLMatchResult AsyncWebRequest::_setSession(AuthSession *session) {
 
 	WebACLMatchResult Ret = ACL_NONE;
 	if (session) {
-		Ret = _server._checkACL(*this, session);
+		Ret = _server._checkACL(_method, _url, session);
 		if (Ret == ACL_ALLOWED) _session = session;
 	}
 	return Ret;

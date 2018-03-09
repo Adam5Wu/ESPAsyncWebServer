@@ -133,9 +133,19 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 		LinkedList<UploadRec> _uploads;
 		bool _checkContinueCanWrite(AsyncWebRequest &request, bool continueHeader);
 		bool _checkContinueCanDelete(AsyncWebRequest &request, bool continueHeader);
+		//bool _checkContinueDAV(AsyncWebRequest &request, bool continueHeader);
+
+		bool _handleUploadBody(AsyncWebRequest &request,
+			size_t offset, void *buf, size_t size);
 
 		void _handleWrite(AsyncWebRequest &request);
 		void _handleDelete(AsyncWebRequest &request);
+		//void _handleDAVOptions(AsyncWebRequest &request);
+		//void _handleDAVList(AsyncWebRequest &request);
+		//void _handleDAVWriteAttr(AsyncWebRequest &request);
+		//void _handleDAVMakeDir(AsyncWebRequest &request);
+		//void _handleDAVCopy(AsyncWebRequest &request);
+		//void _handleDAVMove(AsyncWebRequest &request);
 #endif
 
 	public:
@@ -147,6 +157,9 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 		AsyncStaticWebHandler(String const &path, Dir const& dir, const char* cache_control
 #ifdef ADVANCED_STATIC_WEBHANDLER
 			, bool write_support
+#ifdef HANDLE_WEBDAV
+			, bool dav_support
+#endif
 #endif
 		);
 

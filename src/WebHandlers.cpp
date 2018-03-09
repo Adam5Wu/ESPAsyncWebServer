@@ -105,11 +105,24 @@ AsyncStaticWebHandler::AsyncStaticWebHandler(String const &path, Dir const & dir
 	const char* cache_control
 #ifdef ADVANCED_STATIC_WEBHANDLER
 	, bool write_support
+#ifdef HANDLE_WEBDAV
+	, bool dav_support
+#endif
 #endif
 ):
-	AsyncPathURIWebHandler(path, HTTP_STANDARD_READ
+	AsyncPathURIWebHandler(path,
 #ifdef ADVANCED_STATIC_WEBHANDLER
-		| (write_support? HTTP_STANDARD_WRITE : 0)
+		write_support? (
+#ifdef HANDLE_WEBDAV
+			dav_support ? HTTP_WEBDAV :
+#endif
+				HTTP_STANDARD) : (
+#ifdef HANDLE_WEBDAV
+			dav_support ? HTTP_WEBDAV_READ :
+#endif
+				HTTP_STANDARD_READ)
+#else
+		HTTP_BASIC_READ
 #endif
 	)
 	, _dir(dir)
@@ -151,6 +164,18 @@ bool AsyncStaticWebHandler::_isInterestingHeader(AsyncWebRequest const &request,
 		case HTTP_HEAD:
 			return key.equalsIgnoreCase(FC("If-None-Match"));
 			break;
+
+#ifdef ADVANCED_STATIC_WEBHANDLER
+#ifdef HANDLE_WEBDAV
+		case HTTP_PROPFIND:
+			return key.equalsIgnoreCase(FC("Depth"));
+		case HTTP_COPY:
+			return key.equalsIgnoreCase(FC("Depth")) ||
+				key.equalsIgnoreCase(FC("Destination"));
+		case HTTP_MOVE:
+			return key.equalsIgnoreCase(FC("Destination"));
+#endif
+#endif
 	}
 	return false;
 }
@@ -170,8 +195,17 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 		case HTTP_DELETE:
 			_handleDelete(request);
 			break;
+
+#ifdef HANDLE_WEBDAV
+		case HTTP_OPTIONS:
+		case HTTP_PROPFIND:
+		case HTTP_PROPPATCH:
+		case HTTP_MKCOL:
+		case HTTP_COPY:
+		case HTTP_MOVE:
 #endif
 
+#endif
 		default:
 			ESPWS_DEBUG("WARNING: Unimplemented method '%s'\n",
 				SFPSTR(request._server.mapMethod(request.method())));
@@ -496,44 +530,50 @@ bool AsyncStaticWebHandler::_checkContinueCanWrite(AsyncWebRequest &request, boo
 
 bool AsyncStaticWebHandler::_handleBody(AsyncWebRequest &request,
 	size_t offset, void *buf, size_t size) {
-	if (request.method() == HTTP_PUT) {
-		// Check if upload record has been established
-		UploadRec* pRec = _uploads.get_if([&](UploadRec const &r){
-			return r.req == &request;
-		});
-		if (!pRec) {
-			ESPWS_DEBUG("[%s] WARNING: Upload record not available\n",
-				request._remoteIdent.c_str());
-			return false;
-		}
-		if (pRec->pos != offset) {
-			ESPWS_DEBUG("[%s] WARNING: Upload content not aligned (expect %d, got %d)\n",
-				request._remoteIdent.c_str(), pRec->pos, offset);
-			return false;
-		}
-		if (pRec->pos + size > request.contentLength()) {
-			ESPWS_DEBUG("[%s] WARNING: Upload content in excess (expect %d, got %d)\n",
-				request._remoteIdent.c_str(), request.contentLength(), pRec->pos + size);
-			return false;
-		}
-		size_t bufofs = 0;
-		while (size > bufofs) {
-			size_t outlen = pRec->file.write(((uint8_t*)buf)+bufofs, size-bufofs);
-			if (outlen < 0) {
-				ESPWS_DEBUG("[%s] WARNING: Upload file write failed!\n",
-					request._remoteIdent.c_str());
-				return false;
-			}
-			pRec->pos+= outlen;
-			bufofs += outlen;
-		}
-		ESPWS_DEBUGVV("[%s] Upload written %d ->@%d\n",
-			request._remoteIdent.c_str(), size, pRec->pos);
-		return true;
+	switch (request.method()) {
+		case HTTP_PUT:
+			return _handleUploadBody(request, offset, buf, size);
 	}
 
 	// Do not expect request body
 	return false;
+}
+
+bool AsyncStaticWebHandler::_handleUploadBody(AsyncWebRequest &request,
+	size_t offset, void *buf, size_t size) {
+	// Check if upload record has been established
+	UploadRec* pRec = _uploads.get_if([&](UploadRec const &r){
+		return r.req == &request;
+	});
+	if (!pRec) {
+		ESPWS_DEBUG("[%s] WARNING: Upload record not available\n",
+		request._remoteIdent.c_str());
+		return false;
+	}
+	if (pRec->pos != offset) {
+		ESPWS_DEBUG("[%s] WARNING: Upload content not aligned (expect %d, got %d)\n",
+		request._remoteIdent.c_str(), pRec->pos, offset);
+		return false;
+	}
+	if (pRec->pos + size > request.contentLength()) {
+		ESPWS_DEBUG("[%s] WARNING: Upload content in excess (expect %d, got %d)\n",
+		request._remoteIdent.c_str(), request.contentLength(), pRec->pos + size);
+		return false;
+	}
+	size_t bufofs = 0;
+	while (size > bufofs) {
+		size_t outlen = pRec->file.write(((uint8_t*)buf)+bufofs, size-bufofs);
+		if (outlen < 0) {
+			ESPWS_DEBUG("[%s] WARNING: Upload file write failed!\n",
+			request._remoteIdent.c_str());
+			return false;
+		}
+		pRec->pos+= outlen;
+		bufofs += outlen;
+	}
+	ESPWS_DEBUGVV("[%s] Upload written %d ->@%d\n",
+	request._remoteIdent.c_str(), size, pRec->pos);
+	return true;
 }
 
 bool AsyncStaticWebHandler::_checkContinueCanDelete(AsyncWebRequest &request, bool continueHeader) {
