@@ -60,11 +60,11 @@ Access control is handled by writing an ACL file or Stream (analogous to apache 
 ```
 StreamString ACLData =
 "/:GET:<Anonymous>\n"
-"/api:GET,PUT:<Authenticated>\n"
-"/config:PUT:Admin";
+"/api/:GET,PUT:<Authenticated>\n"
+"/config/:PUT:Admin";
 ```
 
-Load the two pieces of information into the Web server:
+Loading the two pieces of information into the Web server:
 ```
 auto webAuthSessions = new SessionAuthority(webAccounts, webAccounts);
 webServer->configAuthority(*webAuthSessions, ACLData);
