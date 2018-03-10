@@ -7,7 +7,7 @@
 ## Async HTTP and WebSocket Server for ESP8266 Arduino
 This is a permenant fork of the [original project](https://github.com/me-no-dev/ESPAsyncWebServer).
 
-While I preserved the major "async" taste of the original project, much of the core HTTP component has be almost completely re-written, for either improved performance, better protocol compatibility, or new features.
+While I preserved the major "async" taste of the original project, much of the core HTTP component has been almost completely re-written, for either improved performance, better protocol compatibility, or new features.
 
 Handler-wise, this implementation should be compatible with the original project in terms of workflow. However, I may have some small adjustment on API parameters for better consistency and/or functionality improvements.
 
