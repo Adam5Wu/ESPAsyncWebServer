@@ -35,7 +35,7 @@ Requeust serving waterfall from Google Chrome:
 ### 2. Improved digest authentication
 ESP8266 is a fairly under-powered device, especially when it comes to memory. Serving multiple concurrent TLS sessions are infeasible in most scenarios. So we are practically stuck with unencrypted HTTP, and hence digest authentication becomes a necessity.
 
-There are multiple flavors of digest authentication, MD5 is the most commonly implemented. My implemention extendeds the support to MD5-sess, which allows more efficient authentication.
+There are multiple extensions/flavors of digest authentication, MD5 is the most commonly implemented. My implemention extended the support to MD5-sess, which allows more efficient authentication.
 
 In addition, support of SHA256(-sess) digest authentication will come in the near future -- brute forcing a MD5 collision is very feasible nowadays.
 
