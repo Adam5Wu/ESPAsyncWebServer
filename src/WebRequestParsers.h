@@ -52,12 +52,25 @@ class AsyncWebParser {
 			if (newAcceptEncoding) _request._acceptEncoding = std::move(newAcceptEncoding);
 			else { _request._acceptEncoding.clear(true); }
 		}
+#ifdef REQUEST_ACCEPTLANG
+	void __setAcceptLanguage(String &newAcceptLanguage) {
+		if (newAcceptLanguage)
+			_request._acceptLanguage = std::move(newAcceptLanguage);
+		else { _request._acceptLanguage.clear(true); }
+	}
+#endif
 #ifdef REQUEST_USERAGENT
 		void __setUserAgent(String &newUserAgent) {
 			if (newUserAgent) _request._userAgent = std::move(newUserAgent);
 			else { _request._userAgent.clear(true); }
 		}
 #endif
+#ifdef REQUEST_REFERER
+		void __setReferer(String &newReferer) {
+			if (newReferer) _request._Referer = std::move(newReferer);
+			else { _request._Referer.clear(true); }
+		}
+#endif	
 #ifdef HANDLE_WEBDAV
 		void __setTranslate(bool state) { _request._translate = state; }
 #endif
@@ -70,7 +83,7 @@ class AsyncWebParser {
 		{ _request._contentLength = newContentLength; }
 
 #ifdef HANDLE_AUTHENTICATION
-		WebACLMatchResult __setSession(AuthSession* session)
+		WebACLMatchResult __setSession(WebAuthSession* session)
 		{ return _request._setSession(session); }
 #endif
 

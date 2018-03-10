@@ -92,7 +92,7 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 							_requestAuth(false, _session->NRec);
 							if (_session->NRec) {
 								// Google Chrome seems to disregard NC when authentication was unsuccessful
-								const_cast<String*>(&_session->NRec->NC)->clear();
+								_session->NRec->NC = 0;
 							}
 							delete _session;
 							return false;
@@ -212,6 +212,15 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 		__setAcceptEncoding(value);
 		ESPWS_DEBUGV("[%s] + Accept-Encoding: '%s'\n",
 		_request._remoteIdent.c_str(), _request.acceptEncoding().c_str());
+	} else if (_temp.equalsIgnoreCase(FC("Accept-Language"))) {
+#ifdef REQUEST_ACCEPTLANG
+		__setAcceptLanguage(value);
+		ESPWS_DEBUGV("[%s] + Accept-Language: '%s'\n",
+			_request._remoteIdent.c_str(), _request.acceptLanguage().c_str());
+#else
+		ESPWS_DEBUGV("[%s] - Accept-Language: '%s'\n",
+			_request._remoteIdent.c_str(), value.c_str());
+#endif
 	} else if (_temp.equalsIgnoreCase(FC("User-Agent"))) {
 #ifdef REQUEST_USERAGENT
 		__setUserAgent(value);
@@ -219,6 +228,15 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 			_request._remoteIdent.c_str(), _request.userAgent().c_str());
 #else
 		ESPWS_DEBUGV("[%s] - User-Agent: '%s'\n",
+			_request._remoteIdent.c_str(), value.c_str());
+#endif
+	} else if (_temp.equalsIgnoreCase(FC("Referer"))) {
+#ifdef REQUEST_REFERER
+		__setReferer(value);
+		ESPWS_DEBUGV("[%s] + Referer: '%s'\n",
+			_request._remoteIdent.c_str(), _request.referer().c_str());
+#else
+		ESPWS_DEBUGV("[%s] - Referer: '%s'\n",
 			_request._remoteIdent.c_str(), value.c_str());
 #endif
 #ifdef HANDLE_WEBDAV
@@ -390,7 +408,7 @@ void AsyncRequestPassthroughContentParser::_parse(void *&buf, size_t &len) {
 
 #ifdef HANDLE_REQUEST_CONTENT_SIMPLEFORM
 
-PGM_P SIMPLEFORM_MIME PROGMEM = "application/x-www-form-urlencoded";
+PGM_P SIMPLEFORM_MIME SPROGMEM_S = "application/x-www-form-urlencoded";
 
 typedef enum {
 	SF_PARSER_KEY,
@@ -557,7 +575,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
 
-PGM_P MULTIPARTFORM_MIMEPFX PROGMEM = "multipart/form-data;";
+PGM_P MULTIPARTFORM_MIMEPFX SPROGMEM_S = "multipart/form-data;";
 
 typedef enum {
 	MP_PARSER_STARTUP,

@@ -80,6 +80,7 @@
 
 #define HANDLE_AUTHENTICATION
 #define AUTHENTICATION_DISABLE_BASIC
+#define AUTHENTICATION_HA1_CACHE
 #define AUTHENTICATION_ENABLE_SESS
 
 #define ADVANCED_STATIC_WEBHANDLER
@@ -91,6 +92,8 @@
 //#define PLATFORM_SIGNATURE
 
 //#define REQUEST_USERAGENT
+//#define REQUEST_ACCEPTLANG
+//#define REQUEST_REFERER
 
 //#define SUPPORT_CGI // Provision for CGI support (not implemented)
 
@@ -216,6 +219,10 @@ class AsyncWebHandler;
 class AsyncWebResponse;
 class AsyncPrintResponse;
 
+#ifdef HANDLE_AUTHENTICATION
+class WebAuthSession;
+#endif
+
 typedef enum {
 	REQUEST_SETUP,
 	REQUEST_START,
@@ -266,8 +273,14 @@ class AsyncWebRequest {
 		String _host;
 		String _accept;
 		String _acceptEncoding;
+#ifdef REQUEST_ACCEPTLANG
+		String _acceptLanguage;
+#endif
 #ifdef REQUEST_USERAGENT
 		String _userAgent;
+#endif
+#ifdef REQUEST_REFERER
+		String _Referer;
 #endif
 		String _contentType;
 		size_t _contentLength;
@@ -278,7 +291,7 @@ class AsyncWebRequest {
 #endif
 
 #ifdef HANDLE_AUTHENTICATION
-		AuthSession* _session;
+		WebAuthSession* _session;
 #endif
 
 		LinkedList<AsyncWebHeader> _headers;
@@ -307,7 +320,7 @@ class AsyncWebRequest {
 		void _parseQueries(char *buf);
 
 #ifdef HANDLE_AUTHENTICATION
-		WebACLMatchResult _setSession(AuthSession *session);
+		WebACLMatchResult _setSession(WebAuthSession *session);
 #endif
 
 		template<typename T>
@@ -350,8 +363,14 @@ class AsyncWebRequest {
 		String const &accept(void) const { return _accept; }
 		String const &acceptEncoding(void) const { return _acceptEncoding; }
 
+#ifdef REQUEST_ACCEPTLANG
+		String const &acceptLanguage(void) const { return _acceptLanguage; }
+#endif
 #ifdef REQUEST_USERAGENT
 		String const &userAgent(void) const { return _userAgent; }
+#endif
+#ifdef REQUEST_REFERER
+		String const &referer(void) const { return _referer; }
 #endif
 
 		bool keepAlive(void) const { return _keepAlive; }
@@ -365,7 +384,7 @@ class AsyncWebRequest {
 		size_t contentLength(void) const { return _contentLength; }
 
 #ifdef HANDLE_AUTHENTICATION
-		AuthSession* session(void) const { return _session; }
+		WebAuthSession* session(void) const { return _session; }
 #endif
 
 		size_t headers(void) const { return _headers.length(); }
@@ -611,8 +630,11 @@ extern WebAuthTypeComposite const AUTH_SECURE;
 struct NONCEREC {
 	String const NONCE;
 	time_t const EXPIRY;
-	String NC;
-
+	String CNONCE;
+	uint32_t NC = 0;
+#ifdef AUTHENTICATION_HA1_CACHE
+	String HA1;
+#endif
 	NONCEREC(String const &nonce, time_t expiry): NONCE(nonce), EXPIRY(expiry) {}
 	NONCEREC(String &&nonce, time_t expiry): NONCE(std::move(nonce)), EXPIRY(expiry) {}
 };
@@ -620,7 +642,7 @@ struct NONCEREC {
 struct AsyncWebAuth {
 	WebAuthHeaderState State;
 	WebAuthType Type;
-	NONCEREC const *NRec;
+	NONCEREC *NRec;
 	String UserName;
 	String Secret;
 
@@ -633,13 +655,10 @@ struct AsyncWebAuth {
 class WebAuthSession : public AuthSession {
 	public:
 		WebAuthType const Type;
-		NONCEREC const *NRec;
+		NONCEREC *const NRec;
 
 		WebAuthSession(Identity &ident, Authorizer *auth, AsyncWebAuth &authInfo)
 			: AuthSession(ident, auth), Type(authInfo.Type), NRec(authInfo.NRec) {}
-
-		WebAuthSession(Credential &cred, Authorizer *auth, AsyncWebAuth &authInfo)
-			: AuthSession(cred, auth), Type(authInfo.Type), NRec(authInfo.NRec) {}
 
 		WebAuthSession(AuthSession &&session, AsyncWebAuth &authInfo)
 			: AuthSession(std::move(session)), Type(authInfo.Type), NRec(authInfo.NRec) {}

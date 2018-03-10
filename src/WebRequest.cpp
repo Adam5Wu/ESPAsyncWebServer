@@ -252,7 +252,7 @@ ESPWS_DEBUGDO(PGM_P AsyncWebRequest::_stateToString(void) const {
 })
 
 #ifdef HANDLE_AUTHENTICATION
-WebACLMatchResult AsyncWebRequest::_setSession(AuthSession *session) {
+WebACLMatchResult AsyncWebRequest::_setSession(WebAuthSession *session) {
 	delete _session;
 	_session = nullptr;
 

@@ -119,7 +119,6 @@ void AsyncWebResponse::_respond(AsyncWebRequest &request) {
 	if (_code < 200 || _code >= 300 && _code != 304) {
 		request.noKeepAlive();
 	}
-
 	_request = &request;
 }
 

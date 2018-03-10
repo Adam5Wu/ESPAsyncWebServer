@@ -252,7 +252,7 @@ void AsyncStaticWebHandler::_handleRead(AsyncWebRequest &request) {
 	}
 
 	bool gzEncode = _GET_gzLookup &&
-		(request.acceptEncoding().indexOf(F("gzip")) >= 0);
+		(request.acceptEncoding().indexOf(FC("gzip")) >= 0);
 
 	File CWF;
 	// Handle file request path

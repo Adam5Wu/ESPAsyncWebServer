@@ -75,7 +75,7 @@ bool ON_AP_FILTER(AsyncWebRequest const &request) {
 #define SERVER_NAME "ESPAsyncHTTPD"
 #define SERVER_VERSION "0.5"
 
-PGM_P AsyncWebServer::VERTOKEN SPROGMEM_T = SERVER_NAME "/" SERVER_VERSION;
+PGM_P AsyncWebServer::VERTOKEN SPROGMEM_S = SERVER_NAME "/" SERVER_VERSION;
 
 #ifdef HANDLE_AUTHENTICATION
 
@@ -90,8 +90,9 @@ class AnonymousAccountAuthority : public DummyIdentityProvider, public BasicAuth
 	public:
 		virtual Identity& getIdentity(String const& identName) const override
 		{ return identName.equalsIgnoreCase(FL(ANONYMOUS_ID))? ANONYMOUS : UNKNOWN; }
-		virtual bool Authenticate(Credential& cred) override
-		{ return cred.IDENT == ANONYMOUS; }
+		virtual bool Authenticate(Credential& cred,
+			AuthSecretCallback const &secret_callback = nullptr) override
+		{ return cred.disposeSecret(), cred.IDENT == ANONYMOUS; }
 } ANONYMOUS_AUTH;
 
 static SessionAuthority ANONYMOUS_SESSIONS(&ANONYMOUS_AUTH, &ANONYMOUS_AUTH);
@@ -566,7 +567,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 			char const *valStart, *valEnd;
 			// username=...,
 			{
-				int indexUName = authHeader.indexOf(F("username="),indexAttr);
+				int indexUName = authHeader.indexOf(FC("username="),indexAttr);
 				if (indexUName < 0) {
 					ESPWS_DEBUG("[%s] WARNING: Missing username field in '%s'\n",
 						request._remoteIdent.c_str(), &authHeader[indexAttr]);
@@ -577,9 +578,31 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 				ESPWS_DEBUGVV("[%s] -> Username = '%s'\n",
 					request._remoteIdent.c_str(), Ret.UserName.c_str());
 			}
+			// algorithm=...,
+			{
+				int indexAlgo = authHeader.indexOf(FC("algorithm="),indexAttr);
+				if (indexAlgo < 0) {
+					ESPWS_DEBUG("[%s] WARNING: Missing algorithm field in '%s'\n",
+						request._remoteIdent.c_str(), &authHeader[indexAttr]);
+					break;
+				}
+				valStart = valEnd = &authHeader[indexAlgo+10];
+				String Algorithm = getQuotedToken(valEnd,',');
+				ESPWS_DEBUGVV("[%s] -> Algorithm = '%s'\n",
+					request._remoteIdent.c_str(), Algorithm.c_str());
+#ifdef AUTHENTICATION_ENABLE_SESS
+				if (!Algorithm.equalsIgnoreCase(FC("md5-sess"))) {
+#else
+				if (!Algorithm.equalsIgnoreCase(FC("md5"))) {
+#endif
+					ESPWS_DEBUG("[%s] WARNING: Unacceptable algorithm '%s'\n",
+					request._remoteIdent.c_str(), Algorithm.c_str());
+					break;
+				}
+			}
 			// response=...,
 			{
-				int indexResp = authHeader.indexOf(F("response="),indexAttr);
+				int indexResp = authHeader.indexOf(FC("response="),indexAttr);
 				if (indexResp < 0) {
 					ESPWS_DEBUG("[%s] WARNING: Missing response field in '%s'\n",
 						request._remoteIdent.c_str(), &authHeader[indexAttr]);
@@ -593,7 +616,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 			}
 			// realm=...,
 			{
-				int indexRealm = authHeader.indexOf(F("realm="),indexAttr);
+				int indexRealm = authHeader.indexOf(FC("realm="),indexAttr);
 				if (indexRealm < 0) {
 					ESPWS_DEBUG("[%s] WARNING: Missing realm field in '%s'\n",
 						request._remoteIdent.c_str(), &authHeader[indexAttr]);
@@ -603,7 +626,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 				String Realm = getQuotedToken(valEnd,',');
 				ESPWS_DEBUGVV("[%s] -> Realm = '%s'\n",
 					request._remoteIdent.c_str(), Realm.c_str());
-				if (!Realm.equals(_Realm)) {
+				if (Realm != _Realm) {
 					ESPWS_DEBUG("[%s] WARNING: Authorization realm '%s' mismatch, expect '%s'\n",
 						request._remoteIdent.c_str(), Realm.c_str(), _Realm.c_str());
 					Ret.State = AUTHHEADER_NORECORD;
@@ -615,7 +638,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 			// nonce=...,
 			NONCEREC* NRec;
 			{
-				int indexNonce = authHeader.indexOf(F("nonce="),indexAttr);
+				int indexNonce = authHeader.indexOf(FC("nonce="),indexAttr);
 				if (indexNonce < 0) {
 					ESPWS_DEBUG("[%s] WARNING: Missing nonce field in '%s'\n",
 						request._remoteIdent.c_str(), &authHeader[indexAttr]);
@@ -658,7 +681,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 			// qop=...,
 			int QoPLevel = 0;
 			{
-				int indexQoP = authHeader.indexOf(F("qop="),indexAttr);
+				int indexQoP = authHeader.indexOf(FC("qop="),indexAttr);
 				if (indexQoP >= 0) {
 					valStart = valEnd = &authHeader[indexQoP+4];
 					String QoP = getQuotedToken(valEnd,',');
@@ -680,12 +703,16 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 			}
 			// cnonce=...,
 			{
-				int indexCNonce = authHeader.indexOf(F("cnonce="),indexAttr);
+				int indexCNonce = authHeader.indexOf(FC("cnonce="),indexAttr);
 				if (indexCNonce >= 0) {
 					valStart = valEnd = &authHeader[indexCNonce+7];
 					String CNonce = getQuotedToken(valEnd,',');
 					ESPWS_DEBUGVV("[%s] -> CNonce = '%s'\n",
 						request._remoteIdent.c_str(), CNonce.c_str());
+					if (NRec->CNONCE != CNonce) {
+						NRec->CNONCE = CNonce;
+						NRec->HA1.clear();
+					}
 					Ret.Secret.concat(';');
 					Ret.Secret.concat(valStart,valEnd-valStart-1);
 				} else {
@@ -701,26 +728,33 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 			}
 			// nc=...,
 			{
-				int indexNC = authHeader.indexOf(F("nc="),indexAttr);
+				int indexNC = authHeader.indexOf(FC("nc="),indexAttr);
 				if (indexNC >= 0) {
 					valStart = valEnd = &authHeader[indexNC+3];
-					String NC = getQuotedToken(valEnd,',');
+					String StrNC = getQuotedToken(valEnd,',');
 					ESPWS_DEBUGVV("[%s] -> NonceCount = '%s'\n",
-						request._remoteIdent.c_str(), NC.c_str());
+						request._remoteIdent.c_str(), StrNC.c_str());
 #ifdef STRICT_PROTOCOL
-					if (NC.length() != 8) {
+					if (StrNC.length() != 8) {
 						ESPWS_DEBUG("[%s] WARNING: Invalid nonce-count field '%s'\n",
-							request._remoteIdent.c_str(), NC.c_str());
+							request._remoteIdent.c_str(), StrNC.c_str());
 						break;
 					}
 #endif
+					char *endptr;
+					uint32_t NC = strtoul(StrNC.begin(), &endptr, 16);
+					if (endptr != StrNC.end()) {
+						ESPWS_DEBUG("[%s] WARNING: Malformed nonce-count field '%s'\n",
+						request._remoteIdent.c_str(), StrNC.c_str());
+						break;
+					}
 					if (NC <= NRec->NC) {
-						ESPWS_DEBUG("[%s] WARNING: Detected nonce-count reversal, '%s' <= '%s'\n",
-							request._remoteIdent.c_str(), NC.c_str(), NRec->NC.c_str());
+						ESPWS_DEBUG("[%s] WARNING: Detected nonce-count reversal, %08x <= %08x\n",
+							request._remoteIdent.c_str(), NC, NRec->NC);
 						Ret.State = AUTHHEADER_UNACCEPT;
 						break;
 					}
-					NRec->NC = std::move(NC);
+					NRec->NC = NC;
 					Ret.Secret.concat(';');
 					Ret.Secret.concat(valStart,valEnd-valStart-1);
 				} else {
@@ -737,7 +771,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 			putQuotedToken(FPSTR(request.methodToString()), Ret.Secret, ';');
 			// uri=...,
 			{
-				int indexURI = authHeader.indexOf(F("uri="),indexAttr);
+				int indexURI = authHeader.indexOf(FC("uri="),indexAttr);
 				if (indexURI < 0) {
 					ESPWS_DEBUG("[%s] WARNING: Missing uri field in '%s'\n",
 						request._remoteIdent.c_str(), &authHeader[indexAttr]);
@@ -770,35 +804,49 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 }
 
 WebAuthSession* AsyncWebServer::_authSession(AsyncWebAuth &authInfo, AsyncWebRequest const &request) const {
+	WebAuthSession *Ret = nullptr;
 	switch (authInfo.Type) {
 		case AUTH_NONE:
 			ESPWS_DEBUGVV("[%s] Authorizing anonymous session...\n",
 				request._remoteIdent.c_str());
-			return new WebAuthSession(_Auth->getSession(
-				Credential(IdentityProvider::ANONYMOUS, EA_SECRET_NONE, String())), authInfo);
+			Ret = new WebAuthSession(_Auth->getSession(
+				IdentityProvider::ANONYMOUS), authInfo);
+			Ret->Authorize(EA_SECRET_NONE, nullptr);
+			break;
 
 		case AUTH_BASIC:
 			ESPWS_DEBUGVV("[%s] Authorizing basic session...\n",
 				request._remoteIdent.c_str());
-			return new WebAuthSession(_Auth->getSession(authInfo.UserName,
-				EA_SECRET_PLAINTEXT, std::move(authInfo.Secret)), authInfo);
+			Ret = new WebAuthSession(_Auth->getSession(authInfo.UserName), authInfo);
+			Ret->Authorize(EA_SECRET_PLAINTEXT, std::move(authInfo.Secret));
+			break;
 
 		case AUTH_DIGEST:
 			ESPWS_DEBUGVV("[%s] Authorizing digest session...\n",
 				request._remoteIdent.c_str());
-			return new WebAuthSession(_Auth->getSession(authInfo.UserName,
+			Ret = new WebAuthSession(_Auth->getSession(authInfo.UserName), authInfo);
 #ifdef AUTHENTICATION_ENABLE_SESS
-				EA_SECRET_HTTPDIGESTAUTH_MD5SESS,
+			Ret->Authorize(EA_SECRET_HTTPDIGESTAUTH_MD5SESS,
 #else
-				EA_SECRET_HTTPDIGESTAUTH_MD5,
+			Ret->Authorize(EA_SECRET_HTTPDIGESTAUTH_MD5,
 #endif
-				std::move(authInfo.Secret)), authInfo);
+				std::move(authInfo.Secret),
+#ifdef AUTHENTICATION_HA1_CACHE
+				[&](String &HA1) {
+					if (HA1) authInfo.NRec->HA1 = HA1;
+					else HA1 = authInfo.NRec->HA1;
+				}
+#else
+				nullptr
+#endif
+				);
+			break;
 
 		default:
 			ESPWS_DEBUG("[%s] ERROR: Unrecognised authorization type '%s'\n",
 				request._remoteIdent.c_str(), SFPSTR(authInfo._typeToString()));
 	}
-	return nullptr;
+	return Ret;
 }
 
 void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest const &request,
