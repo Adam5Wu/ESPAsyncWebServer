@@ -13,9 +13,8 @@ Handler-wise, this implementation should be compatible with the original project
 
 Compared with the original project, major new features are:
 1. [Balanced multi-client serving](#balanced-multi-client-serving)
-2. [Improved digest authentication](#improved-digest-authentication)
-3. [Fully offloaded authentication and access control](#fully-offloaded-authentication-and-access-control)
-4. [WebDAV support (WIP)](#webdav-support)
+2. [Fully offloaded authentication and access control](#fully-offloaded-authentication-and-access-control)
+3. [WebDAV support (WIP)](#webdav-support)
 
 ### Balanced multi-client serving
 The original project uses un-arbitrated scheduling for request serving: when a request is being served, a small protion of the data is sent, and the TCP acknowledgement of the recepient of the data then triggers another portion of the data being sent, etc. As you may see, this forms a self-enchancing feedback loop.
@@ -35,13 +34,6 @@ Requeust serving waterfall from Google Chrome:
 | Un-arbitrated scheduling | Controlled scheduling |
 | ------------------------ | --------------------- |
 | <img src="docs/Async_NoSched.png"> | <img src="docs/Async_WithSched.png"> |
-
-### Improved digest authentication
-ESP8266 is a fairly under-powered device, especially when it comes to memory. Serving multiple concurrent TLS sessions are infeasible in most scenarios. So we are practically stuck with unencrypted HTTP, and hence digest authentication becomes a necessity.
-
-There are multiple extensions/flavors of digest authentication, MD5 is the most commonly implemented. My implemention extended the support to MD5-sess, which allows more efficient authentication.
-
-In addition, support of SHA256(-sess) digest authentication will come in the near future -- brute forcing a MD5 collision is very feasible nowadays.
 
 ### Fully offloaded authentication and access control
 In conjunction of the [ESPEasyAuth](https://github.com/Adam5Wu/ESPEasyAuth), my implementation can completely offload authentication and access control from the handlers, so that develper only need to focus on handler functionality.
