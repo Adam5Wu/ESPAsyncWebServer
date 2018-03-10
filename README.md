@@ -11,9 +11,13 @@ While I preserved the major "async" taste of the original project, much of the c
 
 Handler-wise, this implementation should be compatible with the original project in terms of workflow. However, I may have some small adjustment on API parameters for better consistency and/or functionality improvements.
 
-Compared with the original project, major new features are as the following:
+Compared with the original project, major new features are:
+1. [Balanced multi-client serving](#1-balanced-multi-client-serving)
+2. [Improved digest authentication](#2-improved-digest-authentication)
+3. [Fully offloaded authentication and access control](#3-fully-offloaded-authentication-and-access-control)
+4. [WebDAV support (WIP)](#4-webdav-support)
 
-### 1. Balanced multi-client serving
+### Balanced multi-client serving
 The original project uses un-arbitrated scheduling for request serving: when a request is being served, a small protion of the data is sent, and the TCP acknowledgement of the recepient of the data then triggers another portion of the data being sent, etc. As you may see, this forms a self-enchancing feedback loop.
 
 The issue with this kind of scheduling is that, when multiple requests are in progress, it easily leads to starvation -- the connection that has slightly more share of the bandwidth tends to acquire even more bandwidth over time, while the others get less and less. The results is fluctaing and disproportional response time, e.g.:
@@ -32,14 +36,14 @@ Requeust serving waterfall from Google Chrome:
 | ------------------------ | --------------------- |
 | <img src="docs/Async_NoSched.png"> | <img src="docs/Async_WithSched.png"> |
 
-### 2. Improved digest authentication
+### Improved digest authentication
 ESP8266 is a fairly under-powered device, especially when it comes to memory. Serving multiple concurrent TLS sessions are infeasible in most scenarios. So we are practically stuck with unencrypted HTTP, and hence digest authentication becomes a necessity.
 
 There are multiple extensions/flavors of digest authentication, MD5 is the most commonly implemented. My implemention extended the support to MD5-sess, which allows more efficient authentication.
 
 In addition, support of SHA256(-sess) digest authentication will come in the near future -- brute forcing a MD5 collision is very feasible nowadays.
 
-### 3. Fully offloaded authentication and access control
+### Fully offloaded authentication and access control
 In conjunction of the [ESPEasyAuth](https://github.com/Adam5Wu/ESPEasyAuth), my implementation can completely offload authentication and access control from the handlers, so that develper only need to focus on handler functionality.
 
 Authentication is handled by creating AccountAuthority and populate it with users and credentials (with a file, or programmatically), for example:
@@ -68,7 +72,7 @@ webServer->configAuthority(*webAuthSessions, ACLData);
 Once the above steps are done, all authentication and access checks are **fully taken care of by the Web server, before request reaching the handlers**.
 In other words, requests that reaches the handlers are guaranteed to be authenticated properly and have sufficient access, according to your account and ACL configurations.
 
-### 4. WebDAV support
+### WebDAV support
 Work in progress
 
 ## Useful links
