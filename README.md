@@ -22,13 +22,13 @@ The original project uses un-arbitrated scheduling for request serving: when a r
 
 The issue with this kind of scheduling is that, when multiple requests are in progress, it easily leads to starvation -- the connection that has slightly more share of the bandwidth tends to acquire even more bandwidth over time, while the others get less and less. The results is fluctaing and disproportional response time, e.g.:
 - The same request sometimes got served in several milliseconds, but sometimes delayed for several seconds;
-- Two response are served concurrently, one small (1KB) and one big (1MB), the small one can take longer to fulfill than the big one.
-- Refer to the screenshot below, in "Un-arbitrated scheduling" column
+- Two response are served concurrently, one small (1KB) and one big (100KB), the small one can take longer to fulfill than the big one.
+- Refer to the screenshot below, in "Un-arbitrated scheduling" column.
 
 In my implemention, I have applied a more controlled scheduling to balance bandwidth usage across concurrent requests, and achieves better "QoS" in multi-client serving scenarios:
-- Requests serving time are much more consistent across time, with low or high workloads
-- Responses are fulfilled with time proportional to their sizes, small transfer generally completes faster than big ones
-- Refer to the screenshot below, in "Controlled scheduling" column
+- Requests serving time are much more consistent across time, with low or high workloads;
+- Responses are fulfilled with time proportional to their sizes, small transfer generally completes faster than big ones.
+- Refer to the screenshot below, in "Controlled scheduling" column.
 
 Requeust serving waterfall from Google Chrome:
 
