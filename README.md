@@ -12,10 +12,10 @@ While I preserved the major "async" taste of the original project, much of the c
 Handler-wise, this implementation should be compatible with the original project in terms of workflow. However, I may have some small adjustment on API parameters for better consistency and/or functionality improvements.
 
 Compared with the original project, major new features are:
-1. [Balanced multi-client serving](#1-balanced-multi-client-serving)
-2. [Improved digest authentication](#2-improved-digest-authentication)
-3. [Fully offloaded authentication and access control](#3-fully-offloaded-authentication-and-access-control)
-4. [WebDAV support (WIP)](#4-webdav-support)
+1. [Balanced multi-client serving](#balanced-multi-client-serving)
+2. [Improved digest authentication](#improved-digest-authentication)
+3. [Fully offloaded authentication and access control](#fully-offloaded-authentication-and-access-control)
+4. [WebDAV support (WIP)](#webdav-support)
 
 ### Balanced multi-client serving
 The original project uses un-arbitrated scheduling for request serving: when a request is being served, a small protion of the data is sent, and the TCP acknowledgement of the recepient of the data then triggers another portion of the data being sent, etc. As you may see, this forms a self-enchancing feedback loop.
