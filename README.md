@@ -57,7 +57,7 @@ Access control is handled by writing an ACL file or Stream (analogous to apache 
 StreamString ACLData =
 "/:GET:<Anonymous>\n"
 "/api:GET,PUT:<Authenticated>\n"
-"/config:PUT:Admin"
+"/config:PUT:Admin";
 ```
 
 Load the two pieces of information into the Web server:
@@ -65,7 +65,7 @@ Load the two pieces of information into the Web server:
 auto webAuthSessions = new SessionAuthority(webAccounts, webAccounts);
 webServer->configAuthority(*webAuthSessions, ACLData);
 ```
-After that, all authentication and access control are fully taken care of by the Web server, **before** request reaching the handlers.
+Once the above steps are done, all authentication and access checks are **fully taken care of by the Web server, before request reaching the handlers**.
 In other words, requests that reaches the handlers are guaranteed to be authenticated properly and have sufficient access, according to your account and ACL configurations.
 
 ### 4. WebDAV support
