@@ -50,6 +50,8 @@ File AccountData = fs.open("Account.txt", "r");
 int AccountCnt = webAccounts->loadAccounts(AccountData);
 webAccounts->addAccount("Admin", "Password");
 ```
+`HTTPDigestAccountAuthority` uses hashed credentials for file-based storage, passwords will not appear in clear text in your flash.
+
 Access control is handled by writing an ACL file or Stream (analogous to apache `.htaccess`), for example:
 ```
 StreamString ACLData =
@@ -57,7 +59,8 @@ StreamString ACLData =
 "/api:GET,PUT:<Authenticated>\n"
 "/config:PUT:Admin"
 ```
-Then load the two piece of information into the Web server:
+
+Load the two pieces of information into the Web server:
 ```
 auto webAuthSessions = new SessionAuthority(webAccounts, webAccounts);
 webServer->configAuthority(*webAuthSessions, ACLData);
