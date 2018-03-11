@@ -341,7 +341,7 @@ void AsyncStaticWebHandler::_GET_sendDirList(AsyncWebRequest &request) {
 	uint32_t startTS = millis();
 	ESPWS_DEBUGV("[%s] Sending dir listing of '%s'\n", request._remoteIdent.c_str(), CWD.name());
 	String OvfBuf;
-	OvfBuf.concat(FC("<html><head><title>Directory content of '"));
+	OvfBuf.concat(FC("<!DOCTYPE html><html><head><title>Directory content of '"));
 	OvfBuf.concat(request.url());
 	OvfBuf.concat(FC("'</title><style>table{width:100%;border-collapse:collapse}"
 		"th{background:#DDD;text-align:right}th:first-child{text-align:left}"
