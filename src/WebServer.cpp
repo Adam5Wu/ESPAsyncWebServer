@@ -581,15 +581,20 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 			// algorithm=...,
 			{
 				int indexAlgo = authHeader.indexOf(FC("algorithm="),indexAttr);
+				String Algorithm(FC("md5"));
 				if (indexAlgo < 0) {
-					ESPWS_DEBUG("[%s] WARNING: Missing algorithm field in '%s'\n",
+#ifdef AUTHENTICATION_ENABLE_SESS
+						ESPWS_DEBUG("[%s] WARNING: Missing algorithm field in '%s'\n",
 						request._remoteIdent.c_str(), &authHeader[indexAttr]);
 					break;
+#endif
+
+				} else {
+					valStart = valEnd = &authHeader[indexAlgo+10];
+					Algorithm = getQuotedToken(valEnd,',');
+					ESPWS_DEBUGVV("[%s] -> Algorithm = '%s'\n",
+						request._remoteIdent.c_str(), Algorithm.c_str());
 				}
-				valStart = valEnd = &authHeader[indexAlgo+10];
-				String Algorithm = getQuotedToken(valEnd,',');
-				ESPWS_DEBUGVV("[%s] -> Algorithm = '%s'\n",
-					request._remoteIdent.c_str(), Algorithm.c_str());
 #ifdef AUTHENTICATION_ENABLE_SESS
 				if (!Algorithm.equalsIgnoreCase(FC("md5-sess"))) {
 #else

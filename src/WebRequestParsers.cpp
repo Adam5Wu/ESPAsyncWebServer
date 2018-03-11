@@ -359,6 +359,7 @@ WebAuthSession* AsyncRequestHeadParser::_handleAuth(void) {
 
 		case AUTHHEADER_UNACCEPT:
 		case AUTHHEADER_MALFORMED:
+			_requestAuth(false);
 			break;
 
 		default:
