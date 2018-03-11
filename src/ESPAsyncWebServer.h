@@ -81,7 +81,8 @@
 #define HANDLE_AUTHENTICATION
 #define AUTHENTICATION_DISABLE_BASIC
 #define AUTHENTICATION_HA1_CACHE
-//#define AUTHENTICATION_ENABLE_SESS
+#define AUTHENTICATION_ENABLE_SESS
+#define AUTHENTICATION_ENABLE_SESS_BUGCOMPAT
 
 #define ADVANCED_STATIC_WEBHANDLER
 
@@ -629,12 +630,17 @@ extern WebAuthTypeComposite const AUTH_SECURE;
 
 struct NONCEREC {
 	String const NONCE;
-	time_t const EXPIRY;
-	String CNONCE;
-	uint32_t NC = 0;
 #ifdef AUTHENTICATION_HA1_CACHE
-	String HA1;
+		String HA1;
 #endif
+#ifdef AUTHENTICATION_ENABLE_SESS
+#ifdef AUTHENTICATION_ENABLE_SESS_BUGCOMPAT
+	String CNONCE;
+#endif
+#endif
+	time_t const EXPIRY;
+	uint32_t NC = 0;
+
 	NONCEREC(String const &nonce, time_t expiry): NONCE(nonce), EXPIRY(expiry) {}
 	NONCEREC(String &&nonce, time_t expiry): NONCE(std::move(nonce)), EXPIRY(expiry) {}
 };

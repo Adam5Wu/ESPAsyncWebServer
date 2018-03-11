@@ -714,10 +714,13 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 					String CNonce = getQuotedToken(valEnd,',');
 					ESPWS_DEBUGVV("[%s] -> CNonce = '%s'\n",
 						request._remoteIdent.c_str(), CNonce.c_str());
+#ifdef AUTHENTICATION_ENABLE_SESS_BUGCOMPAT
+					// Work around Chrome and Firefox bug
 					if (NRec->CNONCE != CNonce) {
 						NRec->CNONCE = CNonce;
 						NRec->HA1.clear();
 					}
+#endif
 					Ret.Secret.concat(';');
 					Ret.Secret.concat(valStart,valEnd-valStart-1);
 				} else {

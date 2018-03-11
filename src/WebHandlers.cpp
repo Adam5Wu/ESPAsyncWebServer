@@ -168,7 +168,8 @@ bool AsyncStaticWebHandler::_isInterestingHeader(AsyncWebRequest const &request,
 #ifdef ADVANCED_STATIC_WEBHANDLER
 #ifdef HANDLE_WEBDAV
 		case HTTP_PROPFIND:
-			return key.equalsIgnoreCase(FC("Depth"));
+			return key.equalsIgnoreCase(FC("Depth")) ||
+				key.equalsIgnoreCase(FC("Brief"));
 		case HTTP_COPY:
 			return key.equalsIgnoreCase(FC("Depth")) ||
 				key.equalsIgnoreCase(FC("Destination"));
