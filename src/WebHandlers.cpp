@@ -346,7 +346,7 @@ void AsyncStaticWebHandler::_GET_sendDirList(AsyncWebRequest &request) {
 	OvfBuf.concat(FC("'</title><style>table{width:100%;border-collapse:collapse}"
 		"th{background:#DDD;text-align:right}th:first-child{text-align:left}"
 		"td{text-align:right}td:first-child{text-align:left}"
-		".footnote{font-size:small}.left{float:left}.right{float:right}</style><head>"
+		".footnote{font-size:small}.left{float:left}.right{float:right}</style></head>"
 		"<body><h1>Directory '"));
 	OvfBuf.concat(request.url());
 	OvfBuf.concat(FC("'</h1><hr><table><thead>"
