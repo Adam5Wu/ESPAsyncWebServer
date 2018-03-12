@@ -625,6 +625,7 @@ AsyncChunkedResponse::AsyncChunkedResponse(int code, AwsResponseFiller callback,
 void AsyncChunkedResponse::_assembleHead(void){
 	if (_request->version()) {
 		addHeader(FC("Transfer-Encoding"), FC("chunked"));
+		_chunkCnt = 0;
 	} else {
 		_code = 505;
 		_contentLength = 0; // Prevents fillBuffer from being called

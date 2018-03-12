@@ -741,7 +741,7 @@ class AsyncWebServer {
 			WebAuthTypeComposite authAccept = AUTH_ANY);
 #endif
 
-		void begin() { _server.begin(); }
+		void begin() { _server.setNoDelay(true); _server.begin(); }
 #if ASYNC_TCP_SSL_ENABLED
 		void beginSecure(const char *cert, const char *private_key_file, const char *password);
 #endif
