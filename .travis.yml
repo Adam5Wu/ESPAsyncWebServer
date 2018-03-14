@@ -8,7 +8,7 @@ script:
   - ARDUINOVER=arduino-1.6.8
   - THISSKETCH=libraries/ESPAsyncWebServer
   - LIBREPOS=(
-      https://github.com/bblanchon/ArduinoJson
+      https://github.com/Adam5Wu/ArduinoJson
       https://github.com/Adam5Wu/ESPVFATFS
       https://github.com/Adam5Wu/ZWUtils-Arduino
       https://github.com/Adam5Wu/ESPEasyAuth
