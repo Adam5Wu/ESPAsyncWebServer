@@ -749,11 +749,10 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 						break;
 					}
 #endif
-					char *endptr;
-					uint32_t NC = strtoul(StrNC.begin(), &endptr, 16);
-					if (endptr != StrNC.end()) {
+					uint32_t NC;
+					if (!StrNC.toUInt(NC)) {
 						ESPWS_DEBUG("[%s] WARNING: Malformed nonce-count field '%s'\n",
-						request._remoteIdent.c_str(), StrNC.c_str());
+							request._remoteIdent.c_str(), StrNC.c_str());
 						break;
 					}
 					if (NC <= NRec->NC) {

@@ -349,7 +349,7 @@ class AsyncWebRequest {
 		ESPWS_DEBUGDO(String const _remoteIdent);
 
 		AsyncWebRequest(AsyncWebServer const &server, AsyncClient &client);
-		virtual ~AsyncWebRequest(void);
+		~AsyncWebRequest(void);
 
 		bool _makeProgress(size_t resShare, bool timer);
 
@@ -733,7 +733,7 @@ class AsyncWebServer {
 		static PGM_P VERTOKEN;
 
 		AsyncWebServer(uint16_t port);
-		virtual ~AsyncWebServer(void);
+		~AsyncWebServer(void);
 
 #ifdef HANDLE_AUTHENTICATION
 		void configAuthority(SessionAuthority &Auth, Stream &ACLStream);
