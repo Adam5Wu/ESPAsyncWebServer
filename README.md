@@ -73,9 +73,9 @@ Work in progress
 	- [ESPAsyncTCP](https://github.com/me-no-dev/ESPAsyncTCP)
 	- [ZWUtils-Arduino](https://github.com/Adam5Wu/ZWUtils-Arduino)
 * Optional:
-	- [ArduinoJson](https://github.com/bblanchon/ArduinoJson)
+	- [ArduinoJson Fork](https://github.com/Adam5Wu/ArduinoJson)
 	- [ESPVFATFS](https://github.com/Adam5Wu/ESPVFATFS)
 	- [ESPEasyAuth](https://github.com/Adam5Wu/ESPEasyAuth)
 * Potentially interesting:
-	- [esp8266FTPServer fork](https://github.com/Adam5Wu/esp8266FTPServer)
+	- [esp8266FTPServer Fork](https://github.com/Adam5Wu/esp8266FTPServer)
 
