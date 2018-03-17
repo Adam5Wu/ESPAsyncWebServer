@@ -603,6 +603,28 @@ class AsyncWebHandler : public AsyncWebFilterable {
 #endif
 };
 
+class AsyncPassthroughWebHandler : public AsyncWebHandler {
+	public:
+		// Dummy implementation, should never reach
+		virtual void _handleRequest(AsyncWebRequest &request) override {}
+#ifdef HANDLE_REQUEST_CONTENT
+		virtual bool _handleBody(AsyncWebRequest &request,
+			size_t offset, void *buf, size_t size) override { return false; }
+
+#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+		virtual bool _handleParamData(AsyncWebRequest &request, String const& name,
+			size_t offset, void *buf, size_t size) override { return false; }
+#endif
+
+#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+		virtual bool _handleUploadData(AsyncWebRequest &request, String const& name,
+			String const& filename, String const& contentType,
+			size_t offset, void *buf, size_t size) override { return false; }
+#endif
+
+#endif
+};
+
 class AsyncCallbackWebHandler;
 class AsyncStaticWebHandler;
 
