@@ -750,7 +750,7 @@ AsyncWebAuth AsyncWebServer::_parseAuthHeader(String &authHeader,
 					}
 #endif
 					uint32_t NC;
-					if (!StrNC.toUInt(NC)) {
+					if (!StrNC.toUInt(NC, 16)) {
 						ESPWS_DEBUG("[%s] WARNING: Malformed nonce-count field '%s'\n",
 							request._remoteIdent.c_str(), StrNC.c_str());
 						break;

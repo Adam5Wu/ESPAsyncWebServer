@@ -470,7 +470,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 				return true;
 			}
 
-			ESPWS_DEBUG_S(L,"[%s] Invalid request parameter state '%s'\n",
+			ESPWS_DEBUG_S(L,"[%s] Invalid simple form parser state '%s'\n",
 				_request._remoteIdent.c_str(), SFPSTR(_stateToString()));
 			__reqState(REQUEST_ERROR);
 			return false;
@@ -523,7 +523,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 
 						// Guard maximum token length
 						if (_temp.length()+i > limit) {
-							ESPWS_DEBUG_S(L,"[%s] Request parameter token exceeds length limit!\n",
+							ESPWS_DEBUG_S(L,"[%s] Simple form token exceeds length limit!\n",
 								_request._remoteIdent.c_str());
 							__reqState(REQUEST_ERROR);
 							return;
@@ -606,6 +606,9 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 		bool _memCacheFull(void) { return _memCached > REQUEST_PARAM_MEMCACHE; }
 
 		bool _checkReachEnd(std::function<void(void)> callback) {
+			ESPWS_DEBUGVV_S(L,"[%s] Multi-part body parsed %d/%d (buffered %d)\n",
+				_request._remoteIdent.c_str(), _curOfs, _request.contentLength(),
+				_temp.length());
 			if (_curOfs >= _request.contentLength()) {
 				ESPWS_DEBUGVV_S(L,"[%s] Finished body parsing\n", _request._remoteIdent.c_str());
 				if (callback) callback();
@@ -617,8 +620,6 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 				}
 				return true;
 			}
-			ESPWS_DEBUGVV_S(L,"[%s] Body parsed %d/%d\n",
-				_request._remoteIdent.c_str(), _curOfs, _request.contentLength());
 			return false;
 		}
 
@@ -763,7 +764,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 					size_t __valOfs = _valOfs;
 					_valOfs += len;
 					return __reqHandler()->_handleUploadData(_request, _key, _filename,
-						_contentType, _valOfs, buf, len);
+						_contentType, __valOfs, buf, len);
 				}
 
 				default:
@@ -774,24 +775,30 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 		}
 
 		virtual void _parse(void *&buf, size_t &len) override {
-			char *str = (char*)buf;
+			char *str;
+			size_t strlen;
 			if (_temp) {
-				_temp.concat(str, len);
+				_temp.concat((char*)buf, len);
 				str = _temp.begin();
-				len = _temp.length();
+				strlen = _temp.length();
+			} else {
+				str = (char*)buf;
+				strlen = len;
 			}
 			_curOfs += len;
-			while (len && buf) {
+			len = 0; // Assume we will take everything
+
+			while (strlen && buf) {
 				switch (_state) {
 					case MP_PARSER_STARTUP:
 					case MP_PARSER_VALUE:
 					case MP_PARSER_CONTENT: {
 						size_t i = _parseOfs;
 						bool partBoundary = false;
-						while (i < REQUEST_PARAM_MEMCACHE && i < len) {
+						while (i < REQUEST_PARAM_MEMCACHE && i < strlen) {
 							if (_state == MP_PARSER_STARTUP) {
 								if (str[i++] == '-') {
-									if (i+1+_boundaryLen <= len) {
+									if (i+1+_boundaryLen <= strlen) {
 										if (str[i] == '-' &&
 											_boundary.startsWith(&str[i+1], _boundaryLen, 0, false)) {
 											partBoundary = true;
@@ -801,7 +808,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 								}
 							}
 							if (str[i++] == '\r') {
-								if (i+3+_boundaryLen <= len) {
+								if (i+3+_boundaryLen <= strlen) {
 									if (str[i] == '\n' && str[i+1] == '-' && str[i+2] == '-' &&
 											_boundary.startsWith(&str[i+3], _boundaryLen, 0, false)) {
 										partBoundary = true;
@@ -820,7 +827,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 							i+= (str[i] == '-')? 1 : 3;
 							i+= _boundaryLen;
 							str+= i;
-							len-= i;
+							strlen-= i;
 							_state = MP_PARSER_BOUNDARY;
 							_key.clear();
 							_filepart = false;
@@ -834,7 +841,8 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 									return;
 								}
 								str+= i;
-								len-= i;
+								strlen-= i;
+								_parseOfs = 0;
 							} else {
 								_parseOfs = i;
 								buf = nullptr;
@@ -847,7 +855,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 						// Find new line in buf
 						size_t i = _parseOfs;
 						while (str[i] != '\n') {
-							if (++i >= len) {
+							if (++i >= strlen) {
 								// No new line, wait for next buffer
 								_parseOfs = i;
 								buf = nullptr;
@@ -894,31 +902,42 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 									_state = MP_PARSER_HEADER;
 								}
 							}
-							_parseOfs = 0;
 							str+= i+1;
-							len-= i+1;
+							strlen-= i+1;
+							_parseOfs = 0;
 						}
 					} break;
 
 					case MP_PARSER_TERMINATE:
-						ESPWS_DEBUG_S(L,"[%s] WARNING: Ignoring terminated data (%d bytes)\n",
-							_request._remoteIdent.c_str(), len);
-						len = 0;
+						ESPWS_DEBUG_S(L,"[%s] WARNING: Ignoring data beyond terminated form (%d bytes)\n",
+							_request._remoteIdent.c_str(), strlen);
+						strlen = 0;
 						break;
 
 					default:
-						ESPWS_DEBUG_S(L,"[%s] Invalid request parameter state '%s'\n",
+						ESPWS_DEBUG_S(L,"[%s] Invalid multi-part form parser state '%s'\n",
 							_request._remoteIdent.c_str(), SFPSTR(_stateToString()));
 						__reqState(REQUEST_ERROR);
 				}
 			}
-			if (len) _temp = String(str, len);
+			if (strlen) _temp = String(str, strlen);
+			else _temp.clear();
 			_checkReachEnd([&]{
 				if (_state != MP_PARSER_TERMINATE) {
-					ESPWS_DEBUG_S(L,"[%s] Excessive data at end of body\n",
+					ESPWS_DEBUG_S(L,"[%s] WARNING: Form un-terminated at end of body!\n",
 						_request._remoteIdent.c_str());
+					ESPWS_DEBUGVDO({
+						size_t tailLen = (_temp.length() <= (_boundaryLen+8))?
+							_temp.length() : (_boundaryLen+8);
+						String tailStr = _temp.substring(_temp.length()-tailLen);
+						tailStr.replace('\0','.');
+						ESPWS_LOG_S(L,"[%s] Buffer tail (%d): '%s'\n",
+							_request._remoteIdent.c_str(), tailLen, tailStr.c_str());
+					});
 					__reqState(REQUEST_ERROR);
 				}
+				// If we did not take everything, note it on the return
+				len = strlen;
 			});
 		}
 };
