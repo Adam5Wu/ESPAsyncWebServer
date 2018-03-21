@@ -108,8 +108,9 @@ class AsyncCatchAllCallbackWebHandler : public AsyncCallbackWebHandler {
 AsyncWebServer::AsyncWebServer(uint16_t port)
 	: _server(port)
 	, _catchAllHandler(new AsyncCatchAllCallbackWebHandler)
-	, _rewrites(LinkedList<AsyncWebRewrite*>([](AsyncWebRewrite* r){ delete r; }))
-	, _handlers(LinkedList<AsyncWebHandler*>([](AsyncWebHandler* h){ delete h; }))
+	, _rewrites([](AsyncWebRewrite* r){ delete r; })
+	, _handlers([](AsyncWebHandler* h){ delete h; })
+	, _requests(nullptr)
 #ifdef HANDLE_AUTHENTICATION
 	, _Auth(&ANONYMOUS_SESSIONS)
 	, _AuthAcc(AUTH_ANY)
@@ -313,8 +314,21 @@ void AsyncWebServer::loadACL(Stream &source) {
 
 void AsyncWebServer::_handleClient(AsyncClient* c) {
 	if(c == nullptr) return;
-	AsyncWebRequest *r = new AsyncWebRequest(*this, *c);
+	AsyncWebRequest *r = new AsyncWebRequest(*this, *c,
+		std::bind(&AsyncWebServer::_requestFinish, this, std::placeholders::_1));
 	if(r == nullptr) delete c;
+	size_t reqCount = _requests.append(r);
+	if (_requests.length() == reqCount) {
+		ESPWS_DEBUGV("[%s] WARNING: Failed to account request (out-of-memory?)\n",
+			r->_remoteIdent.c_str());
+	}
+}
+
+void AsyncWebServer::_requestFinish(AsyncWebRequest *r) {
+	if (!_requests.remove(r)) {
+		ESPWS_DEBUGV("[%s] WARNING: Cannot remove unaccounted request\n",
+			r->_remoteIdent.c_str());
+	}
 }
 
 #if ASYNC_TCP_SSL_ENABLED
@@ -353,6 +367,16 @@ void AsyncWebServer::beginSecure(const char *cert, const char *private_key_file,
 #endif
 }
 #endif
+
+void AsyncWebServer::end() {
+	_server.end();
+	// Notify all requests to terminate
+	_requests.apply([](AsyncWebRequest *&request) {
+		if (request->_state < REQUEST_HALT)
+			request->_state = REQUEST_HALT;
+		return true;
+	});
+}
 
 AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method,
 	ArRequestHandlerFunction const& onRequest){
@@ -880,7 +904,7 @@ void AsyncWebServer::_genAuthHeader(AsyncWebResponse &response, AsyncWebRequest 
 				String NewNonce = calcNonce(request._client.remoteIP().toString(), ExpTS, _Secret);
 				putQuotedToken(NewNonce, Message, ',', false, true);
 				auto DAuthRecs = const_cast<LinkedList<NONCEREC>*>(&_DAuthRecs);
-				if (DAuthRecs->append(NONCEREC(std::move(NewNonce), ExpTS)) > DEFAULT_NONCE_MAXIMUM) {
+				if (DAuthRecs->append(NONCEREC(std::move(NewNonce), ExpTS)) >= DEFAULT_NONCE_MAXIMUM) {
 					ESPWS_DEBUG("[%s] WARNING: Nonce buffer overflow, retiring oldest nonce...\n",
 						request._remoteIdent.c_str());
 					DAuthRecs->remove_nth(0);

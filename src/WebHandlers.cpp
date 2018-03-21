@@ -209,7 +209,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 #endif
 		default:
 			ESPWS_DEBUG("WARNING: Unimplemented method '%s'\n",
-				SFPSTR(request._server.mapMethod(request.method())));
+				SFPSTR(AsyncWebServer::mapMethod(request.method())));
 			request.send(501);
 	}
 }
@@ -462,7 +462,7 @@ bool AsyncStaticWebHandler::_checkContinue(AsyncWebRequest &request, bool contin
 
 		default:
 			ESPWS_DEBUG("WARNING: Unimplemented method '%s'\n",
-				SFPSTR(request._server.mapMethod(request.method())));
+				SFPSTR(AsyncWebServer::mapMethod(request.method())));
 			request.send(501);
 			return false;
 	}

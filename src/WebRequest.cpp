@@ -142,9 +142,12 @@ static class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 			size_t freeHeap = ESP.getFreeHeap();
 #ifdef PURGE_TIMEWAIT
 			if (freeHeap < SCHED_MINHEAP) {
-				// Cleanup time-wait connections to conserve resources
-				while (tcp_tw_pcbs) {
-					tcp_abort(tcp_tw_pcbs);
+				if (tcp_tw_pcbs) {
+					ESPWS_DEBUGVV_S(L,"<Scheduler> Purging time-wait connections\n");
+					// Cleanup time-wait connections to conserve resources
+					do {
+						tcp_abort(tcp_tw_pcbs);
+					} while (tcp_tw_pcbs);
 				}
 			} else
 #endif
@@ -166,9 +169,11 @@ static class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 
 } Scheduler;
 
-AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
+AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c,
+	ArTerminationNotify const &termNotify)
 	: _server(s)
 	, _client(c)
+	, _termNotify(termNotify)
 	, _handler(nullptr)
 	, _response(nullptr)
 	, _parser(nullptr)
@@ -222,6 +227,7 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c)
 }
 
 AsyncWebRequest::~AsyncWebRequest(){
+	_termNotify(this);
 	delete _parser;
 	delete _response;
 	if (_handler) {
@@ -246,6 +252,7 @@ ESPWS_DEBUGDO(PGM_P AsyncWebRequest::_stateToString(void) const {
 		case REQUEST_RECEIVED: return PSTR_C("Received");
 		case REQUEST_RESPONSE: return PSTR_C("Response");
 		case REQUEST_ERROR: return PSTR_C("Error");
+		case REQUEST_HALT: return PSTR_C("Halt");
 		case REQUEST_FINALIZE: return PSTR_C("Finalize");
 		default: return PSTR_C("???");
 	}
@@ -343,6 +350,7 @@ bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
 			if (!_response->_finished()) break;
 
 		case REQUEST_ERROR:
+		case REQUEST_HALT:
 			if (!sched) break;
 			_client.close(true);
 			// "Leak" through does the job faster

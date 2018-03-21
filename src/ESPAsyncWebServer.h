@@ -232,6 +232,7 @@ typedef enum {
 	REQUEST_RECEIVED,
 	REQUEST_RESPONSE,
 	REQUEST_ERROR,
+	REQUEST_HALT,
 	REQUEST_FINALIZE
 } WebServerRequestState;
 
@@ -252,6 +253,9 @@ typedef enum {
 	ACL_ALLOWED,
 } WebACLMatchResult;
 #endif
+
+class AsyncWebRequest;
+typedef std::function<void(AsyncWebRequest*)> ArTerminationNotify;
 
 class AsyncWebRequest {
 	friend class AsyncWebServer;
@@ -343,14 +347,17 @@ class AsyncWebRequest {
 		void _recycleClient(void);
 		ESPWS_DEBUGDO(PGM_P _stateToString(void) const);
 
+	protected:
+		ArTerminationNotify _termNotify;
+		AsyncWebRequest(AsyncWebServer const &server, AsyncClient &client,
+			ArTerminationNotify const &termNotify);
+
 	public:
 		AsyncClient &_client;
 		AsyncWebServer const &_server;
 		ESPWS_DEBUGDO(String const _remoteIdent);
 
-		AsyncWebRequest(AsyncWebServer const &server, AsyncClient &client);
 		~AsyncWebRequest(void);
-
 		bool _makeProgress(size_t resShare, bool timer);
 
 		uint8_t version(void) const { return _version; }
@@ -728,6 +735,9 @@ class AsyncWebServer {
 
 		void _handleClient(AsyncClient* c);
 
+		LinkedList<AsyncWebRequest*> _requests;
+		void _requestFinish(AsyncWebRequest *r);
+
 #ifdef HANDLE_AUTHENTICATION
 		SessionAuthority *_Auth;
 
@@ -767,6 +777,9 @@ class AsyncWebServer {
 #if ASYNC_TCP_SSL_ENABLED
 		void beginSecure(const char *cert, const char *private_key_file, const char *password);
 #endif
+
+		void end();
+		bool hasFinished() { return !_server.status() && _requests.isEmpty(); }
 
 		AsyncWebRewrite& addRewrite(AsyncWebRewrite* rewrite) {
 			return _rewrites.append(rewrite), *rewrite;
