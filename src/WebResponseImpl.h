@@ -152,6 +152,8 @@ class AsyncFileResponse: public AsyncBufferedResponse {
 
 		AsyncFileResponse(File const& content, String const &path,
 			String const &contentType=String(), int code=200, bool download=false);
+
+		static String contentTypeByName(String const &filename);
 };
 
 class AsyncStreamResponse: public AsyncBufferedResponse {

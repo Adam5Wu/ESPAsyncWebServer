@@ -837,12 +837,12 @@ class AsyncWebServer {
 #endif
 
 		AsyncStaticWebHandler& serveStatic(String const &uri, Dir const& dir,
-			String const &indexFile = DEFAULT_INDEX_FILE,
-			String const &cache_control = DEFAULT_CACHE_CTRL
+			String const &indexFile,
+			String const &cache_control
 #ifdef STATIC_ADVANCED_WEBHANDLER
-			, bool write_support = true
+			, bool write_support = false
 #ifdef HANDLE_WEBDAV
-			, bool dav_support = true
+			, bool dav_support = false
 #endif
 #endif
 		);

@@ -174,7 +174,7 @@ void AsyncSimpleResponse::_assembleHead(void) {
 	}
 
 	ESPWS_DEBUGVV("[%s]--- Headers Start ---\n%s--- Headers End ---\n",
-		_request->_remoteIdent.c_str(), _headers.c_str(), _request->_remoteIdent.c_str());
+		_request->_remoteIdent.c_str(), _headers.c_str());
 
 	_status.concat("HTTP/1.",7);
 	_status.concat(version);
@@ -211,7 +211,8 @@ void AsyncSimpleResponse::_ack(size_t len, uint32_t time) {
 	_inFlightLength -= len;
 	if (_waitack() && !_inFlightLength) {
 		// All data acked, now we are done!
-		ESPWS_DEBUGV("[%s] All data acked, finalizing\n", _request->_remoteIdent.c_str());
+		ESPWS_DEBUGV("[%s] All data acked, finalizing\n",
+			_request->_remoteIdent.c_str());
 		_requestComplete();
 	}
 }
@@ -241,10 +242,12 @@ size_t AsyncSimpleResponse::_process(size_t resShare) {
 	if (!_bufLen) _releaseSendBuf();
 	if (written) {
 		if (!_request->_client.send()) {
-			ESPWS_DEBUGVV("[%s] WARNING: TCP send failed!\n", _request->_remoteIdent.c_str());
+			ESPWS_DEBUGVV("[%s] WARNING: TCP send failed!\n",
+				_request->_remoteIdent.c_str());
 		} else {
 			_inFlightLength += written;
-			ESPWS_DEBUGVV("[%s] In-flight %d\n", _request->_remoteIdent.c_str(), _inFlightLength);
+			ESPWS_DEBUGVV("[%s] In-flight %d\n",
+				_request->_remoteIdent.c_str(), _inFlightLength);
 		}
 	}
 	return written;
@@ -252,10 +255,12 @@ size_t AsyncSimpleResponse::_process(size_t resShare) {
 
 bool AsyncSimpleResponse::_prepareSendBuf(size_t resShare) {
 	while (!_sendbuf) {
-		size_t space = _request->_client.space() < resShare? _request->_client.space(): resShare;
+		size_t space = _request->_client.space() < resShare?
+			_request->_client.space(): resShare;
 		if (space < resShare/2 && space < TCP_MSS/4) {
 			// Send buffer too small, wait for it to grow bigger
-			ESPWS_DEBUGVV("[%s] Wait for larger send buffer\n", _request->_remoteIdent.c_str());
+			ESPWS_DEBUGVV("[%s] Wait for larger send buffer\n",
+				_request->_remoteIdent.c_str());
 			break;
 		}
 		_bufSent = 0;
@@ -431,18 +436,23 @@ void AsyncBufferedResponse::_prepareContentSendBuf(size_t space) {
 		AsyncSimpleResponse::_prepareContentSendBuf(space);
 
 	if (space) {
-		size_t bufToSend = (_contentLength == -1)? space : _contentLength - _bufPrepared;
+		size_t bufToSend = (_contentLength == -1)? space
+			: _contentLength - _bufPrepared;
 		_bufLen = (space < bufToSend)? space : bufToSend;
 		if (_bufLen) {
 			ESPWS_DEBUGV("[%s] Preparing %d / %d\n",
 				_request->_remoteIdent.c_str(), _bufLen, bufToSend);
 
-			_sendbuf = _stashbuf? _stashbuf : (_stashbuf = (uint8_t*)malloc(STAGEBUF_SIZE));
+			_sendbuf = _stashbuf? _stashbuf
+				: (_stashbuf = (uint8_t*)malloc(STAGEBUF_SIZE));
 			if (_sendbuf) {
-				_bufLen = _fillBuffer((uint8_t*)_sendbuf, _bufLen < STAGEBUF_SIZE? _bufLen
-					: STAGEBUF_SIZE);
+				_bufLen = _fillBuffer((uint8_t*)_sendbuf,
+					_bufLen < STAGEBUF_SIZE? _bufLen : STAGEBUF_SIZE);
 				_bufPrepared+= _bufLen;
-			} else ESPWS_DEBUGV("[%s] Buffer allocation failed!\n", _request->_remoteIdent.c_str());
+			} else {
+				ESPWS_DEBUGV("[%s] Buffer allocation failed!\n",
+					_request->_remoteIdent.c_str());
+			}
 		}
 	}
 }
@@ -476,39 +486,13 @@ AsyncFileResponse::AsyncFileResponse(File const& content, String const &path,
 {
 	if (_content) {
 		_contentLength = _content.size();
-
-		if (!contentType) {
-			int extensionStart = path.lastIndexOf('.')+1;
-			String extension = path.begin() + extensionStart;
-
-			if (extension == FC("htm") || extension == FC("html"))
-				_contentType = FC("text/html");
-			else if (extension == FC("css")) _contentType = FC("text/css");
-			else if (extension == FC("json")) _contentType = FC("text/json");
-			else if (extension == FC("js")) _contentType = FC("application/javascript");
-			else if (extension == FC("png")) _contentType = FC("image/png");
-			else if (extension == FC("gif")) _contentType = FC("image/gif");
-			else if (extension == FC("jpg") || extension == FC("jpeg"))
-				_contentType = FC("image/jpeg");
-			else if (extension == FC("ico")) _contentType = FC("image/x-icon");
-			else if (extension == FC("svg")) _contentType = FC("image/svg+xml");
-			else if (extension == FC("eot")) _contentType = FC("font/eot");
-			else if (extension == FC("woff")) _contentType = FC("font/woff");
-			else if (extension == FC("woff2")) _contentType = FC("font/woff2");
-			else if (extension == FC("ttf")) _contentType = FC("font/ttf");
-			else if (extension == FC("xml")) _contentType = FC("text/xml");
-			else if (extension == FC("txt")) _contentType = FC("text/plain");
-			else if (extension == FC("xhtml")) _contentType = FC("application/xhtml+xml");
-			else if (extension == FC("pdf")) _contentType = FC("application/pdf");
-			else if (extension == FC("zip")) _contentType = FC("application/zip");
-			else if (extension == FC("gz")) _contentType = FC("application/x-gzip");
-			//else _contentType = FC("application/octet-stream");
-		}
+		_contentType = contentType? contentType : contentTypeByName(path);
 
 		if (download) {
 			size_t filenameStart = path.lastIndexOf('/') + 1;
 			char buf[26+path.length()-filenameStart];
-			snprintf_P(buf, sizeof(buf), PSTR_C("attachment; filename=\"%s\""), path.begin()+filenameStart);
+			snprintf_P(buf, sizeof(buf), PSTR_C("attachment; filename=\"%s\""),
+				path.begin()+filenameStart);
 			addHeader(FC("Content-Disposition"), buf);
 		}
 	}
@@ -541,6 +525,52 @@ size_t AsyncFileResponse::_fillBuffer(uint8_t *buf, size_t maxLen) {
 		_state = RESPONSE_WAIT_ACK;
 	}
 	return outLen;
+}
+
+String AsyncFileResponse::contentTypeByName(String const &filename) {
+	int extensionStart = filename.lastIndexOf('.')+1;
+	String extension = filename.begin() + extensionStart;
+
+	if (extension == FC("htm") || extension == FC("html"))
+		return FC("text/html");
+	else if (extension == FC("css"))
+		return FC("text/css");
+	else if (extension == FC("json"))
+		return FC("text/json");
+	else if (extension == FC("js"))
+		return FC("text/javascript");
+	else if (extension == FC("png"))
+		return FC("image/png");
+	else if (extension == FC("gif"))
+		return FC("image/gif");
+	else if (extension == FC("jpg") || extension == FC("jpeg"))
+		return FC("image/jpeg");
+	else if (extension == FC("ico"))
+		return FC("image/x-icon");
+	else if (extension == FC("svg"))
+		return FC("image/svg+xml");
+	else if (extension == FC("eot"))
+		return FC("font/eot");
+	else if (extension == FC("woff"))
+		return FC("font/woff");
+	else if (extension == FC("woff2"))
+		return FC("font/woff2");
+	else if (extension == FC("ttf"))
+		return FC("font/ttf");
+	else if (extension == FC("xml"))
+		return FC("text/xml");
+	else if (extension == FC("txt"))
+		return FC("text/plain");
+	else if (extension == FC("xhtml"))
+		return FC("application/xhtml+xml");
+	else if (extension == FC("pdf"))
+		return FC("application/pdf");
+	else if (extension == FC("zip"))
+		return FC("application/zip");
+	else if (extension == FC("gz"))
+		return FC("application/x-gzip");
+
+	return String::EMPTY;
 }
 
 /*
