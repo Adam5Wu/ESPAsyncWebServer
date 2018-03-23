@@ -67,10 +67,10 @@ class AsyncWebParser {
 #endif
 #ifdef REQUEST_REFERER
 		void __setReferer(String &newReferer) {
-			if (newReferer) _request._Referer = std::move(newReferer);
-			else { _request._Referer.clear(true); }
+			if (newReferer) _request._referer = std::move(newReferer);
+			else { _request._referer.clear(true); }
 		}
-#endif	
+#endif
 #ifdef HANDLE_WEBDAV
 		void __setTranslate(bool state) { _request._translate = state; }
 #endif

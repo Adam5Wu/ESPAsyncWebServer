@@ -49,7 +49,7 @@ class AsyncJsonResponse: public AsyncChunkedResponse {
 				std::bind(&AsyncJsonResponse::_JsonFiller, this,
 					std::placeholders::_1, std::placeholders::_2,
 					std::placeholders::_3),
-				FC("text/json"))
+				FL("text/json"))
 			//, _jsonBuffer()
 			, _jsonRoot(std::move(root_cb(_jsonBuffer)))
 			, _prettyPrint(false)

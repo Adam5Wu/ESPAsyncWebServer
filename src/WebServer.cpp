@@ -378,7 +378,7 @@ void AsyncWebServer::end() {
 	});
 }
 
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method,
+AsyncCallbackWebHandler& AsyncWebServer::on(String const &uri, WebRequestMethodComposite method,
 	ArRequestHandlerFunction const& onRequest){
 	AsyncCallbackWebHandler* handler = new AsyncPathURICallbackWebHandler(uri, method);
 	handler->onRequest = onRequest;
@@ -386,7 +386,7 @@ AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodCom
 }
 
 #ifdef HANDLE_REQUEST_CONTENT
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method,
+AsyncCallbackWebHandler& AsyncWebServer::on(String const &uri, WebRequestMethodComposite method,
 	ArRequestHandlerFunction const& onRequest,
 	ArBodyHandlerFunction const& onBody){
 	AsyncCallbackWebHandler& handler = on(uri,method,onRequest);
@@ -395,7 +395,7 @@ AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodCom
 }
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodComposite method,
+AsyncCallbackWebHandler& AsyncWebServer::on(String const &uri, WebRequestMethodComposite method,
 	ArRequestHandlerFunction const& onRequest,
 	ArBodyHandlerFunction const& onBody,
 	ArParamDataHandlerFunction const& onParamData){
@@ -407,23 +407,24 @@ AsyncCallbackWebHandler& AsyncWebServer::on(const char* uri, WebRequestMethodCom
 
 #endif
 
-AsyncStaticWebHandler& AsyncWebServer::serveStatic(const char* uri, Dir const& dir,
-	const char* indexFile, const char* cache_control
-#ifdef ADVANCED_STATIC_WEBHANDLER
+AsyncStaticWebHandler& AsyncWebServer::serveStatic(String const &uri, Dir const& dir,
+	String const &indexFile, String const &cache_control
+#ifdef STATIC_ADVANCED_WEBHANDLER
 	, bool write_support
 #ifdef HANDLE_WEBDAV
 	, bool dav_support
 #endif
 #endif
 	){
-	AsyncStaticWebHandler* handler = new AsyncStaticWebHandler(uri, dir, cache_control
-#ifdef ADVANCED_STATIC_WEBHANDLER
+	AsyncStaticWebHandler* handler = new AsyncStaticWebHandler(uri, dir
+#ifdef STATIC_ADVANCED_WEBHANDLER
 		, write_support
 #ifdef HANDLE_WEBDAV
 		, dav_support
 #endif
 #endif
 	);
+	if (cache_control) handler->setCacheControl(cache_control);
 	if (indexFile) handler->setGETIndexFile(indexFile);
 	return addHandler(handler), *handler;
 }

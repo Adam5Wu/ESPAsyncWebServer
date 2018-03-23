@@ -124,9 +124,9 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 
 		void _handleRead(AsyncWebRequest &request);
 
-#ifdef ADVANCED_STATIC_WEBHANDLER
+#ifdef STATIC_ADVANCED_WEBHANDLER
 		struct UploadRec {
-			AsyncWebRequest* req;
+			AsyncWebRequest *req;
 			File file;
 			size_t pos;
 		};
@@ -154,8 +154,8 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 		ArRequestHandlerFunction _onGETIndexNotFound;
 		ArRequestHandlerFunction _onDirRedirect;
 
-		AsyncStaticWebHandler(String const &path, Dir const& dir, const char* cache_control
-#ifdef ADVANCED_STATIC_WEBHANDLER
+		AsyncStaticWebHandler(String const &path, Dir const& dir
+#ifdef STATIC_ADVANCED_WEBHANDLER
 			, bool write_support
 #ifdef HANDLE_WEBDAV
 			, bool dav_support
@@ -164,20 +164,20 @@ class AsyncStaticWebHandler: public AsyncPathURIWebHandler {
 		);
 
 		virtual bool _isInterestingHeader(AsyncWebRequest const &request, String const& key) override;
-#ifdef ADVANCED_STATIC_WEBHANDLER
+#ifdef STATIC_ADVANCED_WEBHANDLER
 		virtual bool _checkContinue(AsyncWebRequest &request, bool continueHeader) override;
 		virtual void _terminateRequest(AsyncWebRequest &request) override;
 #endif
 
-		AsyncStaticWebHandler& setCacheControl(const char* cache_control);
+		AsyncStaticWebHandler& setCacheControl(String const &cache_control);
 		AsyncStaticWebHandler& setGETLookupGZ(bool gzLookup, bool gzFirst);
-		AsyncStaticWebHandler& setGETIndexFile(const char* filename);
+		AsyncStaticWebHandler& setGETIndexFile(String const &filename);
 
 		virtual void _handleRequest(AsyncWebRequest &request) override;
 
 #ifdef HANDLE_REQUEST_CONTENT
 
-#ifdef ADVANCED_STATIC_WEBHANDLER
+#ifdef STATIC_ADVANCED_WEBHANDLER
 		virtual bool _handleBody(AsyncWebRequest &request,
 			size_t offset, void *buf, size_t size) override;
 #else

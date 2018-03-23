@@ -44,7 +44,9 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 
 				__reqState(REQUEST_HEADERS);
 			} else {
-				__reqState(REQUEST_ERROR);
+				ESPWS_DEBUG("[%s] ERROR: Unable to start request parsing",
+					_request._remoteIdent.c_str());
+				__reqState(REQUEST_HALT);
 				return false;
 			}
 			break;
@@ -53,8 +55,11 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 			if(_temp) {
 				// More headers
 				if (!_parseReqHeader()) {
-					if (__reqState() == REQUEST_HEADERS)
-						__reqState(REQUEST_ERROR);
+					if (__reqState() == REQUEST_HEADERS) {
+						ESPWS_DEBUG("[%s] ERROR: Request header parsing terminate abnormally",
+							_request._remoteIdent.c_str());
+						__reqState(REQUEST_HALT);
+					}
 					return false;
 				}
 				break;
@@ -70,14 +75,12 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 			// End of headers
 			if(!__reqHandler()) {
 				// No handler available
-				_request.send(501);
-				__reqState(REQUEST_RESPONSE);
+				_request.send_P(501, PSTR_C("No handler available"), FC("text/plain"));
 			} else {
 #ifdef STRICT_PROTOCOL
 				// According to RFC, HTTP/1.1 requires host header
 				if (_request.version() && !_request.host()) {
-					_request.send(400);
-					__reqState(REQUEST_RESPONSE);
+					_request.send_P(400, PSTR_C("Missing host header"), FC("text/plain"));
 				} else
 #endif
 				{
@@ -152,15 +155,21 @@ bool AsyncRequestHeadParser::_parseLine(void) {
 						}
 						// We are done!
 						delete this;
-					} else __reqState(REQUEST_RESPONSE);
+					} else {
+						if (!_request._responded()) {
+							ESPWS_DEBUG("[%s] Request handler rejected continue check\n",
+								_request._remoteIdent.c_str());
+							_request.send_P(500, PSTR_C("Handler refused to process request"), FC("text/plain"));
+						}
+					}
 				}
 			}
 			return false;
 
 		default:
-			ESPWS_DEBUG("[%s] Unexpected request status [%s]",
+			ESPWS_DEBUG("[%s] ERROR: Unexpected request status [%s]",
 				_request._remoteIdent.c_str(), SFPSTR(__strState()));
-			__reqState(REQUEST_ERROR);
+			__reqState(REQUEST_HALT);
 			return false;
 	}
 	return true;
@@ -244,8 +253,7 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 #ifdef STRICT_PROTOCOL
 		if (value.length() != 1 ||
 			((value[0] != 't') && (value[0] == 'f') && (value[0] == 'F'))) {
-			_request.send(400);
-			__reqState(REQUEST_RESPONSE);
+			_request.send_P(400, PSTR_C("Invalid 'Translate' header value"), FC("text/plain"));
 			return false;
 		}
 #endif
@@ -262,8 +270,7 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 			__setKeepAlive(false);
 		} else {
 #ifdef STRICT_PROTOCOL
-			_request.send(400);
-			__reqState(REQUEST_RESPONSE);
+			_request.send_P(400, PSTR_C("Invalid 'Connection' header value"), FC("text/plain"));
 			return false;
 #else
 			ESPWS_DEBUG("[%s] ? Unrecognised connection header content: '%s'\n",
@@ -287,8 +294,7 @@ bool AsyncRequestHeadParser::_parseReqHeader(void) {
 		} else {
 #ifdef STRICT_PROTOCOL
 			// According to RFC, unrecognised expect should be rejected with error
-			_request.send(417);
-			__reqState(REQUEST_RESPONSE);
+			_request.send(417, PSTR_C("Invalid 'Expect' header value"), FC("text/plain"));
 			return false;
 #else
 			ESPWS_DEBUG("[%s] ? Unrecognised expect header content: '%s'\n",
@@ -373,14 +379,12 @@ void AsyncRequestHeadParser::_requestAuth(bool renew, NONCEREC const *NRec) {
 	AsyncWebResponse *response = _request.beginResponse(401);
 	_request._server._genAuthHeader(*response, _request, renew, NRec);
 	_request.send(response);
-	__reqState(REQUEST_RESPONSE);
 }
 
 void AsyncRequestHeadParser::_rejectAuth(AuthSession *session) {
 	if (!session || (session->IDENT != IdentityProvider::ANONYMOUS &&
 		session->IDENT != IdentityProvider::UNKNOWN)) {
-		_request.send(403);
-		__reqState(REQUEST_RESPONSE);
+		_request.send(403, PSTR_C("Access denied"), FC("text/plain"));
 	} else _requestAuth(false);
 }
 
@@ -391,9 +395,11 @@ void AsyncRequestHeadParser::_rejectAuth(AuthSession *session) {
 void AsyncRequestPassthroughContentParser::_parse(void *&buf, size_t &len) {
 	// Simply track the upload progress and invoke handler
 	if (!__reqHandler()->_handleBody(_request, _curOfs, buf, len)) {
-		ESPWS_DEBUG("[%s] Request body handling terminated abnormally\n",
-			_request._remoteIdent.c_str());
-		__reqState(REQUEST_ERROR);
+		if (!_request._responded()) {
+			ESPWS_DEBUG("[%s] Request body handling terminated abnormally\n",
+				_request._remoteIdent.c_str());
+			_request.send_P(500, PSTR_C("Error handling request body"), FC("text/plain"));
+		}
 	} else {
 		_curOfs+= len;
 		len = 0;
@@ -470,9 +476,9 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 				return true;
 			}
 
-			ESPWS_DEBUG_S(L,"[%s] Invalid simple form parser state '%s'\n",
+			ESPWS_DEBUG_S(L,"[%s] ERROR: Invalid simple form parser state '%s'\n",
 				_request._remoteIdent.c_str(), SFPSTR(_stateToString()));
-			__reqState(REQUEST_ERROR);
+			__reqState(REQUEST_HALT);
 			return false;
 		}
 
@@ -525,7 +531,7 @@ class AsyncSimpleFormContentParser: public AsyncWebParser {
 						if (_temp.length()+i > limit) {
 							ESPWS_DEBUG_S(L,"[%s] Simple form token exceeds length limit!\n",
 								_request._remoteIdent.c_str());
-							__reqState(REQUEST_ERROR);
+							_request.send_P(500, PSTR_L("Excessive token length"), FL("text/plain"));
 							return;
 						}
 						_temp.concat(str, i);
@@ -667,7 +673,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 			if (indexBoundary < 0) {
 				ESPWS_DEBUG_S(L,"[%s] Missing boundary specification\n",
 					_request._remoteIdent.c_str());
-				__reqState(REQUEST_ERROR);
+				_request.send_P(400, PSTR_L("Missing boundary specification"), FL("text/plain"));
 				return;
 			}
 			const char* valStart = &_request.contentType().begin()[indexBoundary+9];
@@ -821,7 +827,11 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 							ESPWS_DEBUGVV_S(L,"[%s] Boundary detected @%d\n",
 								_request._remoteIdent.c_str(), i);
 							if (!_handlePartBoundary(str,i-1)) {
-								__reqState(REQUEST_ERROR);
+								if (!_request._responded()) {
+									ESPWS_DEBUGVV_S(L,"[%s] Body part boundary handling terminated abnormally\n",
+										_request._remoteIdent.c_str());
+									_request.send_P(500, PSTR_L("Error handling request body part boundary"), FL("text/plain"));
+								}
 								return;
 							}
 							i+= (str[i] == '-')? 1 : 3;
@@ -837,7 +847,11 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 						} else {
 							if (i >= REQUEST_PARAM_MEMCACHE) {
 								if (!_handlePartMiddle(str,i)) {
-									__reqState(REQUEST_ERROR);
+									if (!_request._responded()) {
+										ESPWS_DEBUGVV_S(L,"[%s] Body part section handling terminated abnormally\n",
+											_request._remoteIdent.c_str());
+										_request.send_P(500, PSTR_L("Error handling request body part section"), FL("text/plain"));
+									}
 									return;
 								}
 								str+= i;
@@ -869,14 +883,18 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 								line.trim();
 								if (_state == MP_PARSER_HEADER) {
 									if (!_handleHeader(line)) {
-										__reqState(REQUEST_ERROR);
+										if (!_request._responded()) {
+											ESPWS_DEBUGVV_S(L,"[%s] Body part header handling terminated abnormally\n",
+												_request._remoteIdent.c_str());
+											_request.send_P(500, PSTR_L("Error handling request body part header"), FL("text/plain"));
+										}
 										return;
 									}
 								} else {
 									if (line != FL("--")) {
 										ESPWS_DEBUG_S(L,"[%s] Unrecognised part boundary preamble '%s'\n",
 											_request._remoteIdent.c_str(), line.c_str());
-										__reqState(REQUEST_ERROR);
+										_request.send_P(500, PSTR_L("Unrecognised part boundary preamble"), FL("text/plain"));
 										return;
 									} else {
 										ESPWS_DEBUGVV_S(L,"[%s] Part Start\n", _request._remoteIdent.c_str());
@@ -915,16 +933,16 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 						break;
 
 					default:
-						ESPWS_DEBUG_S(L,"[%s] Invalid multi-part form parser state '%s'\n",
+						ESPWS_DEBUG_S(L,"[%s] ERROR: Invalid multi-part form parser state '%s'\n",
 							_request._remoteIdent.c_str(), SFPSTR(_stateToString()));
-						__reqState(REQUEST_ERROR);
+						__reqState(REQUEST_HALT);
 				}
 			}
 			if (strlen) _temp = String(str, strlen);
 			else _temp.clear();
 			_checkReachEnd([&]{
 				if (_state != MP_PARSER_TERMINATE) {
-					ESPWS_DEBUG_S(L,"[%s] WARNING: Form un-terminated at end of body!\n",
+					ESPWS_DEBUG_S(L,"[%s] ERROR: Form un-terminated at end of body!\n",
 						_request._remoteIdent.c_str());
 					ESPWS_DEBUGVDO({
 						size_t tailLen = (_temp.length() <= (_boundaryLen+8))?
@@ -934,7 +952,7 @@ class AsyncRequestMultipartFormContentParser: public AsyncWebParser {
 						ESPWS_LOG_S(L,"[%s] Buffer tail (%d): '%s'\n",
 							_request._remoteIdent.c_str(), tailLen, tailStr.c_str());
 					});
-					__reqState(REQUEST_ERROR);
+					__reqState(REQUEST_HALT);
 				}
 				// If we did not take everything, note it on the return
 				len = strlen;

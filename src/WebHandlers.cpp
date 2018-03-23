@@ -101,9 +101,8 @@ bool AsyncPathURIWebHandler::_checkContinue(AsyncWebRequest &request, bool conti
  * Static Directory & File handler
  * */
 
-AsyncStaticWebHandler::AsyncStaticWebHandler(String const &path, Dir const & dir,
-	const char* cache_control
-#ifdef ADVANCED_STATIC_WEBHANDLER
+AsyncStaticWebHandler::AsyncStaticWebHandler(String const &path, Dir const &dir
+#ifdef STATIC_ADVANCED_WEBHANDLER
 	, bool write_support
 #ifdef HANDLE_WEBDAV
 	, bool dav_support
@@ -111,7 +110,7 @@ AsyncStaticWebHandler::AsyncStaticWebHandler(String const &path, Dir const & dir
 #endif
 ):
 	AsyncPathURIWebHandler(path,
-#ifdef ADVANCED_STATIC_WEBHANDLER
+#ifdef STATIC_ADVANCED_WEBHANDLER
 		write_support? (
 #ifdef HANDLE_WEBDAV
 			dav_support ? HTTP_WEBDAV :
@@ -126,27 +125,35 @@ AsyncStaticWebHandler::AsyncStaticWebHandler(String const &path, Dir const & dir
 #endif
 	)
 	, _dir(dir)
-	, _cache_control(cache_control)
-#ifdef ADVANCED_STATIC_WEBHANDLER
+	//, _cache_control()
+	//, _GET_indexFile()
+#ifdef STATIC_ADVANCED_WEBHANDLER
 	, _uploads(nullptr)
 #endif
 {
 	// Set defaults
-	//_GET_indexFile = "";
+#ifdef STATIC_GET_GZLOOKUP
 	_GET_gzLookup = true;
+#else
+	_GET_gzLookup = false;
+#endif
+#ifdef STATIC_GET_GZFIRST
 	_GET_gzFirst = true;
+#else
+	_GET_gzFirst = false;
+#endif
 	//_onGETIndex = nullptr;
 	_onGETPathNotFound = std::bind(&AsyncStaticWebHandler::_pathNotFound, this, std::placeholders::_1);
 	_onGETIndexNotFound = std::bind(&AsyncStaticWebHandler::_GET_sendDirList, this, std::placeholders::_1);
 	_onDirRedirect = std::bind(&AsyncStaticWebHandler::_redirectDir, this, std::placeholders::_1);
 }
 
-AsyncStaticWebHandler& AsyncStaticWebHandler::setCacheControl(const char* cache_control){
+AsyncStaticWebHandler& AsyncStaticWebHandler::setCacheControl(String const &cache_control){
 	_cache_control = cache_control;
 	return *this;
 }
 
-AsyncStaticWebHandler& AsyncStaticWebHandler::setGETIndexFile(const char* filename){
+AsyncStaticWebHandler& AsyncStaticWebHandler::setGETIndexFile(String const &filename){
 	if (_onGETIndex)
 		ESPWS_DEBUG("WARNING: Ineffective configuration, index handler in place!\n");
 	_GET_indexFile = filename;
@@ -158,14 +165,14 @@ AsyncStaticWebHandler& AsyncStaticWebHandler::setGETLookupGZ(bool gzLookup, bool
 	_GET_gzFirst = gzFirst;
 }
 
-bool AsyncStaticWebHandler::_isInterestingHeader(AsyncWebRequest const &request, String const & key) {
+bool AsyncStaticWebHandler::_isInterestingHeader(AsyncWebRequest const &request, String const &key) {
 	switch (request.method()) {
 		case HTTP_GET:
 		case HTTP_HEAD:
 			return key.equalsIgnoreCase(FC("If-None-Match"));
 			break;
 
-#ifdef ADVANCED_STATIC_WEBHANDLER
+#ifdef STATIC_ADVANCED_WEBHANDLER
 #ifdef HANDLE_WEBDAV
 		case HTTP_PROPFIND:
 			return key.equalsIgnoreCase(FC("Depth")) ||
@@ -188,7 +195,7 @@ void AsyncStaticWebHandler::_handleRequest(AsyncWebRequest &request) {
 			_handleRead(request);
 			break;
 
-#ifdef ADVANCED_STATIC_WEBHANDLER
+#ifdef STATIC_ADVANCED_WEBHANDLER
 		case HTTP_PUT:
 			_handleWrite(request);
 			break;
@@ -442,7 +449,7 @@ void AsyncStaticWebHandler::_pathNotFound(AsyncWebRequest &request) {
 	request.send(404); // File not found
 }
 
-#ifdef ADVANCED_STATIC_WEBHANDLER
+#ifdef STATIC_ADVANCED_WEBHANDLER
 
 bool AsyncStaticWebHandler::_checkContinue(AsyncWebRequest &request, bool continueHeader) {
 	if (!_checkPathRedirectOrContinue(request, continueHeader)) return false;
@@ -526,7 +533,7 @@ bool AsyncStaticWebHandler::_checkContinueCanWrite(AsyncWebRequest &request, boo
 	}
 	// Stash file record
 	_uploads.append({&request, _file, 0});
-	return true;
+	return AsyncWebHandler::_checkContinue(request, continueHeader);
 }
 
 bool AsyncStaticWebHandler::_handleBody(AsyncWebRequest &request,
@@ -586,7 +593,7 @@ bool AsyncStaticWebHandler::_checkContinueCanDelete(AsyncWebRequest &request, bo
 		request.send(403);
 		return false;
 	}
-	return true;
+	return AsyncWebHandler::_checkContinue(request, continueHeader);
 }
 
 void AsyncStaticWebHandler::_handleWrite(AsyncWebRequest &request) {

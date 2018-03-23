@@ -84,7 +84,9 @@
 //#define AUTHENTICATION_ENABLE_SESS
 //#define AUTHENTICATION_ENABLE_SESS_BUGCOMPAT
 
-#define ADVANCED_STATIC_WEBHANDLER
+#define STATIC_GET_GZLOOKUP
+//#define STATIC_GET_GZFIRST
+#define STATIC_ADVANCED_WEBHANDLER
 
 #define HANDLE_WEBDAV
 
@@ -100,6 +102,7 @@
 
 #define REQUEST_PARAM_MEMCACHE    1024
 #define REQUEST_PARAM_KEYMAX      128
+#define REQUEST_DISCARD_IDLE      500       // Unit ms
 
 #define DEFAULT_IDLE_TIMEOUT      10        // Unit s
 #define DEFAULT_ACK_TIMEOUT       10 * 1000 // Unit ms
@@ -231,13 +234,18 @@ typedef enum {
 	REQUEST_BODY,
 	REQUEST_RECEIVED,
 	REQUEST_RESPONSE,
-	REQUEST_ERROR,
 	REQUEST_HALT,
 	REQUEST_FINALIZE
 } WebServerRequestState;
 
 String urlDecode(char const *buf, size_t len);
 String urlEncode(char const *buf, size_t len);
+
+typedef enum {
+	REQUEST_CLEANUP_STAGE1 = 0x01,
+	REQUEST_CLEANUP_STAGE2 = 0x02,
+	REQUEST_CLEANUP_STAGE3 = 0x04,
+} WebServerRequestCleanup;
 
 /*
  * REQUEST :: Each incoming Client is wrapped inside a Request and both live together until disconnect
@@ -285,7 +293,7 @@ class AsyncWebRequest {
 		String _userAgent;
 #endif
 #ifdef REQUEST_REFERER
-		String _Referer;
+		String _referer;
 #endif
 		String _contentType;
 		size_t _contentLength;
@@ -294,6 +302,8 @@ class AsyncWebRequest {
 #ifdef HANDLE_WEBDAV
 		bool _translate;
 #endif
+
+		time_t _lastDiscardTS;
 
 #ifdef HANDLE_AUTHENTICATION
 		WebAuthSession* _session;
@@ -344,6 +354,7 @@ class AsyncWebRequest {
 			}
 		}
 
+		void _cleanup(uint8_t stages);
 		void _recycleClient(void);
 		ESPWS_DEBUGDO(PGM_P _stateToString(void) const);
 
@@ -358,6 +369,7 @@ class AsyncWebRequest {
 		ESPWS_DEBUGDO(String const _remoteIdent);
 
 		~AsyncWebRequest(void);
+		bool _responded(void) { return _state >= REQUEST_RESPONSE; }
 		bool _makeProgress(size_t resShare, bool timer);
 
 		uint8_t version(void) const { return _version; }
@@ -716,7 +728,7 @@ class AsyncWebServer {
 				String const from;
 				String const to;
 
-				AsyncWebSimpleRewrite(const char* src, const char* dst)
+				AsyncWebSimpleRewrite(String const &src, String const &dst)
 				: from(src), to(dst) {
 					addFilter([&](AsyncWebRequest const& request){
 						return from == request.url();
@@ -785,7 +797,7 @@ class AsyncWebServer {
 			return _rewrites.append(rewrite), *rewrite;
 		}
 		bool removeRewrite(AsyncWebRewrite* rewrite) { return _rewrites.remove(rewrite); }
-		AsyncWebRewrite& rewrite(const char* from, const char* to)
+		AsyncWebRewrite& rewrite(String const &from, String const &to)
 		{ return addRewrite(new AsyncWebSimpleRewrite(from, to)); }
 
 		AsyncWebHandler& addHandler(AsyncWebHandler* handler) {
@@ -793,20 +805,20 @@ class AsyncWebServer {
 		}
 		bool removeHandler(AsyncWebHandler* handler) { return _handlers.remove(handler); }
 
-		AsyncCallbackWebHandler& on(const char* uri, ArRequestHandlerFunction const& onRequest)
+		AsyncCallbackWebHandler& on(String const &uri, ArRequestHandlerFunction const& onRequest)
 		{ return on(uri, HTTP_GET, onRequest); }
 
-		AsyncCallbackWebHandler& on(const char* uri,
+		AsyncCallbackWebHandler& on(String const &uri,
 			WebRequestMethodComposite method,
 			ArRequestHandlerFunction const& onRequest);
 #ifdef HANDLE_REQUEST_CONTENT
-		AsyncCallbackWebHandler& on(const char* uri,
+		AsyncCallbackWebHandler& on(String const &uri,
 			WebRequestMethodComposite method,
 			ArRequestHandlerFunction const& onRequest,
 			ArBodyHandlerFunction const& onBody);
 
 #if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-		AsyncCallbackWebHandler& on(const char* uri,
+		AsyncCallbackWebHandler& on(String const &uri,
 			WebRequestMethodComposite method,
 			ArRequestHandlerFunction const& onRequest,
 			ArBodyHandlerFunction const& onBody,
@@ -814,7 +826,7 @@ class AsyncWebServer {
 #endif
 
 #ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-		AsyncCallbackWebHandler& on(const char* uri,
+		AsyncCallbackWebHandler& on(String const &uri,
 			WebRequestMethodComposite method,
 			ArRequestHandlerFunction const& onRequest,
 			ArBodyHandlerFunction const& onBody,
@@ -824,10 +836,10 @@ class AsyncWebServer {
 
 #endif
 
-		AsyncStaticWebHandler& serveStatic(const char* uri, Dir const& dir,
-			const char* indexFile = DEFAULT_INDEX_FILE,
-			const char* cache_control = DEFAULT_CACHE_CTRL
-#ifdef ADVANCED_STATIC_WEBHANDLER
+		AsyncStaticWebHandler& serveStatic(String const &uri, Dir const& dir,
+			String const &indexFile = DEFAULT_INDEX_FILE,
+			String const &cache_control = DEFAULT_CACHE_CTRL
+#ifdef STATIC_ADVANCED_WEBHANDLER
 			, bool write_support = true
 #ifdef HANDLE_WEBDAV
 			, bool dav_support = true

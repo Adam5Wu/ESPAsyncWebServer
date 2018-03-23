@@ -151,7 +151,7 @@ static class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 				}
 			} else
 #endif
-			while (_procCnt++ <= _count && freeHeap >= SCHED_MINHEAP) {
+			while (++_procCnt <= _count && freeHeap >= SCHED_MINHEAP) {
 				if (!_cur) _cur = _head;
 				if (_cur) {
 					idleCnt = 0;
@@ -182,6 +182,7 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c,
 #ifdef HANDLE_WEBDAV
 	, _translate(false)
 #endif
+	, _lastDiscardTS(0)
 	, _version(0)
 	, _method(HTTP_NONE)
 	//, _url()
@@ -227,15 +228,9 @@ AsyncWebRequest::AsyncWebRequest(AsyncWebServer const &s, AsyncClient &c,
 }
 
 AsyncWebRequest::~AsyncWebRequest(){
-	_termNotify(this);
 	delete _parser;
-	delete _response;
-	if (_handler) {
-		_handler->_terminateRequest(*this);
-	}
-#ifdef HANDLE_AUTHENTICATION
-	_setSession(nullptr);
-#endif
+	_termNotify(this);
+	_cleanup(REQUEST_CLEANUP_STAGE3);
 	Scheduler.deschedule(this);
 }
 
@@ -251,7 +246,6 @@ ESPWS_DEBUGDO(PGM_P AsyncWebRequest::_stateToString(void) const {
 		case REQUEST_BODY: return PSTR_C("Body");
 		case REQUEST_RECEIVED: return PSTR_C("Received");
 		case REQUEST_RESPONSE: return PSTR_C("Response");
-		case REQUEST_ERROR: return PSTR_C("Error");
 		case REQUEST_HALT: return PSTR_C("Halt");
 		case REQUEST_FINALIZE: return PSTR_C("Finalize");
 		default: return PSTR_C("???");
@@ -272,6 +266,50 @@ WebACLMatchResult AsyncWebRequest::_setSession(WebAuthSession *session) {
 }
 #endif
 
+void AsyncWebRequest::_cleanup(uint8_t stages) {
+	if (stages & REQUEST_CLEANUP_STAGE1) {
+		_contentType.clear(true);
+		_oUrl.clear(true);
+		_oQuery.clear(true);
+		_headers.clear();
+		_queries.clear();
+#ifdef HANDLE_REQUEST_CONTENT
+	#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
+		_params.clear();
+	#endif
+	#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
+		_uploads.clear();
+	#endif
+#endif
+	}
+	if (stages & REQUEST_CLEANUP_STAGE2) {
+		_url.clear(true);
+		_host.clear(true);
+		_accept.clear(true);
+#ifdef REQUEST_ACCEPTLANG
+		_acceptLanguage.clear(true);
+#endif
+#ifdef REQUEST_USERAGENT
+		_userAgent.clear(true);
+#endif
+#ifdef REQUEST_REFERER
+		_referer.clear(true);
+#endif
+	}
+	if (stages & REQUEST_CLEANUP_STAGE3) {
+		delete _response;
+		_response = nullptr;
+		if (_handler) {
+			_handler->_terminateRequest(*this);
+			_handler = nullptr;
+		}
+
+#ifdef HANDLE_AUTHENTICATION
+		_setSession(nullptr);
+#endif
+	}
+}
+
 void AsyncWebRequest::_recycleClient(void) {
 	// We can only recycle client if everything is OK, which implies that
 	//   all parsing must have completed and parser freed
@@ -281,44 +319,15 @@ void AsyncWebRequest::_recycleClient(void) {
 	}
 	ESPWS_DEBUGV("[%s] Recycling connection...\n", _remoteIdent.c_str());
 
-	delete _response;
-	_response = nullptr;
-	if (_handler) {
-		_handler->_terminateRequest(*this);
-		_handler = nullptr;
-	}
-
-#ifdef HANDLE_AUTHENTICATION
-	_setSession(nullptr);
-#endif
 
 #ifdef SUPPORT_CGI
-	// Note: Enable the following block of CGI-like features are to be implemented
-	_url.clear(true);
-	_host.clear(true);
-	_accept.clear(true);
-#ifdef REQUEST_USERAGENT
-	_userAgent.clear(true);
+	_cleanup(REQUEST_CLEANUP_STAGE1 | REQUEST_CLEANUP_STAGE2);
 #endif
-	_contentType.clear(true);
-	_oUrl.clear(true);
-	_oQuery.clear(true);
-
-	_headers.clear();
-	_queries.clear();
-#ifdef HANDLE_REQUEST_CONTENT
-#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-	_params.clear();
-#endif
-#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-	_uploads.clear();
-#endif
-#endif
-
-#endif //SUPPORT_CGI
+	_cleanup(REQUEST_CLEANUP_STAGE3);
 
 	_method = HTTP_NONE;
 	_contentLength = -1;
+	_lastDiscardTS = 0;
 	_state = REQUEST_SETUP;
 	// Note: the following two fields are the reasons we are here, so no need to touch
 	//_keepAlive = true;
@@ -332,12 +341,25 @@ void AsyncWebRequest::_recycleClient(void) {
 
 bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
 	switch (_state) {
-		// The following state should never be seem here!
-		ESPWS_DEBUGDO(REQUEST_RECEIVED: panic());
+		// The following states should never be seem here!
+		ESPWS_DEBUGDO(
+		case REQUEST_RECEIVED:
+			panic()
+		);
 
 		case REQUEST_RESPONSE:
-			ESPWS_DEBUGDO(if (!_response) panic());
+			// If we are in discard mode
+			if (_lastDiscardTS) {
+				// Do not act on unscheduled progress
+				if (!sched) return false;
+				// Do not act until the channel is idle
+				time_t idleSpan = millis() - _lastDiscardTS;
+				if (idleSpan < REQUEST_DISCARD_IDLE)
+					return false;
+				_lastDiscardTS = 0;
+			}
 
+			ESPWS_DEBUGDO(if (!_response) panic());
 			if (_response->_sending() && _client.canSend()) {
 				ESPWS_DEBUGVV("[%s] Response progress: %d\n", _remoteIdent.c_str(), resShare);
 				size_t progress = _response->_process(resShare);
@@ -349,7 +371,6 @@ bool AsyncWebRequest::_makeProgress(size_t resShare, bool sched){
 			}
 			if (!_response->_finished()) break;
 
-		case REQUEST_ERROR:
 		case REQUEST_HALT:
 			if (!sched) break;
 			_client.close(true);
@@ -381,7 +402,7 @@ void AsyncWebRequest::_onError(int8_t error){
 void AsyncWebRequest::_onTimeout(uint32_t time){
 	ESPWS_DEBUGV("[%s] TIMEOUT: %ums, client state: %s\n",
 		_remoteIdent.c_str(), time, _client.stateToString());
-	_state = REQUEST_ERROR;
+	_state = REQUEST_HALT;
 }
 
 void AsyncWebRequest::_onDisconnect(){
@@ -412,53 +433,34 @@ void AsyncWebRequest::_onData(void *buf, size_t len) {
 #endif
 
 	if (len) {
-		ESPWS_DEBUG("[%s] On-Data: ignored extra data of %d bytes [%s] "
-			"[Parser: %s] [Response: %s]\n", _remoteIdent.c_str(),
-			len, SFPSTR(_stateToString()),
+		// We have some unprocessed request data, keep chewing...
+		ESPWS_DEBUG("[%s] On-Data: ignored request data of %d bytes [%s] "
+			"[Parser: %s] [Response: %s]\n",
+			_remoteIdent.c_str(), len, SFPSTR(_stateToString()),
 			SFPSTR(_parser? _parser->_stateToString() : PSTR_C("N/A")),
 			SFPSTR(_response? _response->_stateToString() : PSTR_C("N/A")));
+		_lastDiscardTS = millis();
 	}
 
 	if (_state == REQUEST_RECEIVED) {
 		_handler->_handleRequest(*this);
 		if (_state == REQUEST_RECEIVED) {
 			ESPWS_DEBUG("[%s] Ineffective handler!\n", _remoteIdent.c_str());
-			_state = REQUEST_ERROR;
+			send_P(500, PSTR_C("Request handler produced no reply"), FC("text/plain"));
 		}
-		// Free up resources no longer needed
-#ifndef SUPPORT_CGI
-		// NOTE: these resources should not be freed if CGI-like features are to be implemented
-		_contentType.clear(true);
-		_oUrl.clear(true);
-		_oQuery.clear(true);
-		_headers.clear();
-		_queries.clear();
-#ifdef HANDLE_REQUEST_CONTENT
-#if defined(HANDLE_REQUEST_CONTENT_SIMPLEFORM) || defined(HANDLE_REQUEST_CONTENT_MULTIPARTFORM)
-		_params.clear();
-#endif
-#ifdef HANDLE_REQUEST_CONTENT_MULTIPARTFORM
-		_uploads.clear();
-#endif
-#endif
-
-#endif // SUPPORT_CGI
 	}
 
-	if (_state == REQUEST_RESPONSE) {
+	if (_state == REQUEST_RESPONSE && !_response->_started()) {
 		_client.setRxTimeout(0);
-		_response->_respond(*this);
-		// Free up resources no longer needed
 #ifndef SUPPORT_CGI
-		// NOTE: these resources should not be freed if CGI-like features are to be implemented
-		_url.clear(true);
-		_host.clear(true);
-		_accept.clear(true);
-#ifdef REQUEST_USERAGENT
-		_userAgent.clear(true);
+		// Free up resources no longer needed
+		_cleanup(REQUEST_CLEANUP_STAGE1);
 #endif
-
-#endif // SUPPORT_CGI
+		_response->_respond(*this);
+#ifndef SUPPORT_CGI
+		// Free up resources no longer needed
+		_cleanup(REQUEST_CLEANUP_STAGE2);
+#endif
 	}
 }
 
@@ -557,6 +559,7 @@ AsyncWebUpload const* AsyncWebRequest::getUpload(String const &name) const {
 void AsyncWebRequest::send(AsyncWebResponse *response) {
 	if(_response){
 		ESPWS_LOG("ERROR: Response already in progress!\n");
+		delete response;
 		return;
 	}
 	if(response == nullptr){
