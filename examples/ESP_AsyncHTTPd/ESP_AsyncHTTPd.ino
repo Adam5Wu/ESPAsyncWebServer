@@ -76,7 +76,7 @@ void setup() {
     json = String();
   });
 
-  wwwSrv.serveStatic("/test", VFATFS.openDir("/"));
+  wwwSrv.serveStatic("/test", VFATFS.openDir("/"), DEFAULT_INDEX_FILE, DEFAULT_CACHE_CTRL);
 
   wwwSrv.catchAll([](AsyncWebRequest &request){
     Serial.print("NO_HANDLER: ");
