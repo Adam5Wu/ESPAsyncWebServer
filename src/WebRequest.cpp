@@ -396,12 +396,12 @@ void AsyncWebRequest::_onAck(size_t len, uint32_t time){
 
 void AsyncWebRequest::_onError(int8_t error){
 	ESPWS_DEBUG("[%s] TCP ERROR: %d, client state: %s\n",
-		_remoteIdent.c_str(), error, _client.stateToString());
+		_remoteIdent.c_str(), error, SFPSTR(_client.stateToString()));
 }
 
 void AsyncWebRequest::_onTimeout(uint32_t time){
 	ESPWS_DEBUGV("[%s] TIMEOUT: %ums, client state: %s\n",
-		_remoteIdent.c_str(), time, _client.stateToString());
+		_remoteIdent.c_str(), time, SFPSTR(_client.stateToString()));
 	_state = REQUEST_HALT;
 }
 
