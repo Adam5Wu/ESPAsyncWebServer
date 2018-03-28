@@ -100,7 +100,7 @@
 
 //#define SUPPORT_CGI // Provision for CGI support (not implemented)
 
-#define REQUEST_PARAM_MEMCACHE    1024
+#define REQUEST_PARAM_MEMCACHE    512
 #define REQUEST_PARAM_KEYMAX      128
 #define REQUEST_DISCARD_IDLE      500       // Unit ms
 

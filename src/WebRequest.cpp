@@ -71,12 +71,10 @@ String urlEncode(char const *buf, size_t len) {
 	return Ret;
 }
 
-#define SCHED_RES      10
-#define SCHED_SHARE    TCP_SND_BUF
+#define SCHED_RES       10
+#define SCHED_MAXSHARE  TCP_SND_BUF
 // Minimal heap available before scheduling a response processing
-// 4K = Flash physical sector size
-// 4K = Misc heap uses
-#define SCHED_MINHEAP  (4096+4096+SCHED_SHARE)
+#define SCHED_MINHEAP   2048
 
 #ifdef PURGE_TIMEWAIT
 struct tcp_pcb;
@@ -87,30 +85,25 @@ extern "C" void tcp_abort (struct tcp_pcb* pcb);
 static class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 	protected:
 		os_timer_t timer = {0};
-		bool running = false;
-		uint8_t idleCnt = 0;
-
 		ItemType *_cur = nullptr;
+		uint8_t running = 0;
 
 		void startTimer(void) {
 			if (!running) {
-				running = true;
+				running = 1;
 				os_timer_arm(&timer, SCHED_RES, true);
 				ESPWS_DEBUGVV_S(L,"<Scheduler> Start\n");
 			}
 		}
 		void stopTimer(void) {
-			if (running) {
-				running = false;
-				os_timer_disarm(&timer);
-				ESPWS_DEBUGVV_S(L,"<Scheduler> Stop\n");
+			os_timer_disarm(&timer);
+			ESPWS_DEBUGVV_S(L,"<Scheduler> Stop\n");
 #ifdef PURGE_TIMEWAIT
-				// Cleanup time-wait connections to conserve resources
-				while (tcp_tw_pcbs) {
-					tcp_abort(tcp_tw_pcbs);
-				}
-#endif
+			// Cleanup time-wait connections to conserve resources
+			while (tcp_tw_pcbs) {
+				tcp_abort(tcp_tw_pcbs);
 			}
+#endif
 		}
 
 		static void timerThunk(void *arg)
@@ -121,7 +114,7 @@ static class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 			: LinkedList(std::bind(&RequestScheduler::curValidator, this, std::placeholders::_1)) {
 			os_timer_setfn(&timer, &RequestScheduler::timerThunk, this);
 		}
-		~RequestScheduler(void) { stopTimer(); }
+		~RequestScheduler(void) { if (running) stopTimer(); }
 
 		void schedule(AsyncWebRequest *req) {
 			if (append(req) == 0) startTimer();
@@ -141,27 +134,31 @@ static class RequestScheduler : private LinkedList<AsyncWebRequest*> {
 			int _procCnt = 0;
 			size_t freeHeap = ESP.getFreeHeap();
 #ifdef PURGE_TIMEWAIT
-			if (freeHeap < SCHED_MINHEAP) {
-				if (tcp_tw_pcbs) {
-					ESPWS_DEBUGVV_S(L,"<Scheduler> Purging time-wait connections\n");
-					// Cleanup time-wait connections to conserve resources
-					do {
-						tcp_abort(tcp_tw_pcbs);
-					} while (tcp_tw_pcbs);
+			if (freeHeap < SCHED_MINHEAP+SCHED_MAXSHARE) {
+				ESPWS_DEBUGV_S(L,"<Scheduler> Purging time-wait connections\n");
+				while (tcp_tw_pcbs) {
+					tcp_abort(tcp_tw_pcbs);
 				}
-			} else
+				freeHeap = ESP.getFreeHeap();
+			}
 #endif
+			if (freeHeap < SCHED_MINHEAP) {
+				ESPWS_DEBUG_S(L,"<Scheduler> WARNING: Not enough heap to make progress!\n");
+				return;
+			}
+
 			while (++_procCnt <= _count && freeHeap >= SCHED_MINHEAP) {
 				if (!_cur) _cur = _head;
 				if (_cur) {
-					idleCnt = 0;
+					running = 1;
 					ItemType *__cur = _cur;
-					if (_cur->value()->_makeProgress(SCHED_SHARE, sched))
+					size_t schedShare = min(freeHeap - SCHED_MINHEAP, (size_t)SCHED_MAXSHARE);
+					if (_cur->value()->_makeProgress(schedShare, sched))
 						freeHeap = ESP.getFreeHeap();
 					// Move to next request, if current has not been removed
 					if (_cur == __cur) _cur = _cur->next;
 				} else {
-					if (!++idleCnt) stopTimer();
+					if (!++running) stopTimer();
 					break;
 				}
 			}
