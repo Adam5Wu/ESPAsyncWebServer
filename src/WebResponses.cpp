@@ -674,7 +674,10 @@ void AsyncChunkedResponse::_prepareContentSendBuf(size_t space) {
 }
 
 size_t AsyncChunkedResponse::_fillBuffer(uint8_t *buf, size_t maxLen){
-	size_t chunkLen = _callback(buf+6, maxLen-8, _bufPrepared-(8*_chunkCnt));
+	size_t chunkOfs = _bufPrepared-(8*_chunkCnt++);
+	ESPWS_DEBUGV("[%s] Filling chunk #%d...\n",
+		_request->_remoteIdent.c_str(), _chunkCnt);
+	size_t chunkLen = _callback(buf+6, maxLen-8, chunkOfs);
 	// Encapsulate chunk
 	buf[0] = HexLookup_UC[(chunkLen >> 12) & 0xF];
 	buf[1] = HexLookup_UC[(chunkLen >> 8) & 0xF];

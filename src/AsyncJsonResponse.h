@@ -27,15 +27,23 @@
  * Json Response
  * */
 
-#define ASYNCWEB_JSON_MAXIMUM_BUFFER 2048
+#define ASYNCWEB_JSON_MAXIMUM_BUFFER 4096
+//#define ASYNCWEB_JSON_BUFFER_STATIC
 
-typedef StaticJsonBuffer<ASYNCWEB_JSON_MAXIMUM_BUFFER> AsyncStaticJsonBuffer;
-	
-typedef std::function<JsonVariant(AsyncStaticJsonBuffer &)> JsonCreateRootCallback;
+#ifdef ASYNCWEB_JSON_BUFFER_STATIC
+typedef StaticJsonBuffer<ASYNCWEB_JSON_MAXIMUM_BUFFER> AsyncJsonBuffer;
+#else
+#include <BoundedAllocator.h>
+typedef Internals::DynamicJsonBufferBase<BoundedOneshotAllocator> AsyncJsonBuffer;
+#endif
+typedef std::function<JsonVariant(AsyncJsonBuffer &)> JsonCreateRootCallback;
 
 class AsyncJsonResponse: public AsyncChunkedResponse {
 	private:
-		AsyncStaticJsonBuffer _jsonBuffer;
+#ifndef ASYNCWEB_JSON_BUFFER_STATIC
+		BoundedOneshotAllocator _bufferAllocator;
+#endif
+		AsyncJsonBuffer _jsonBuffer;
 		JsonVariant _jsonRoot;
 		bool _prettyPrint;
 
@@ -50,7 +58,13 @@ class AsyncJsonResponse: public AsyncChunkedResponse {
 					std::placeholders::_1, std::placeholders::_2,
 					std::placeholders::_3),
 				FL("text/json"))
+#ifdef ASYNCWEB_JSON_BUFFER_STATIC
 			//, _jsonBuffer()
+#else
+			, _bufferAllocator(ASYNCWEB_JSON_MAXIMUM_BUFFER)
+			, _jsonBuffer(_bufferAllocator,
+				ASYNCWEB_JSON_MAXIMUM_BUFFER-AsyncJsonBuffer::EmptyBlockSize)
+#endif
 			, _jsonRoot(std::move(root_cb(_jsonBuffer)))
 			, _prettyPrint(false)
 			, root(_jsonRoot)
@@ -59,13 +73,13 @@ class AsyncJsonResponse: public AsyncChunkedResponse {
 		void setPrettyPrint(bool enable = true);
 
 		static AsyncJsonResponse* CreateNewObjectResponse(int code = 200) {
-			return new AsyncJsonResponse([](AsyncStaticJsonBuffer &buf) {
+			return new AsyncJsonResponse([](AsyncJsonBuffer &buf) {
 					return JsonVariant(buf.createObject());
 				}, code);
 		}
 
 		static AsyncJsonResponse* CreateNewArrayResponse(int code = 200) {
-			return new AsyncJsonResponse([](AsyncStaticJsonBuffer &buf) {
+			return new AsyncJsonResponse([](AsyncJsonBuffer &buf) {
 					return JsonVariant(buf.createArray());
 				}, code);
 		}

@@ -14,12 +14,11 @@ class BufferWindowPrint : public Print {
 
 		virtual size_t write(uint8_t c) override {
 			if (_win_start) {
-				_win_start--;
+				--_win_start;
 				return 1;
 			}
-			if (_win_size) {
+			if (_prn_pos < _win_size) {
 				_buf[_prn_pos++] = c;
-				_win_size--;
 				return 1;
 			}
 			return 0;
@@ -30,14 +29,17 @@ class BufferWindowPrint : public Print {
 				_win_start -= size;
 				return size;
 			}
-			size_t bufstart = _win_start;
-			_win_start = 0;
-			size_t writelen = min(size - bufstart, _win_size);
-			if (writelen) {
-				memcpy(_buf+_prn_pos, buffer+bufstart, writelen);
-				_prn_pos+= writelen;
-				_win_size-= writelen;
-				return writelen;
+			if (_prn_pos < _win_size) {
+				size_t bufofs = _win_start;
+				if (bufofs) {
+					buffer += _win_start;
+					size -= _win_start;
+					_win_start = 0;
+				}
+				size_t wlen = min(size, _win_size - _prn_pos);
+				memcpy(_buf+_prn_pos, buffer, wlen);
+				_prn_pos += wlen;
+				return wlen+bufofs;
 			}
 			return 0;
 		}
