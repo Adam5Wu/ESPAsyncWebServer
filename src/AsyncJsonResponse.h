@@ -27,7 +27,7 @@
  * Json Response
  * */
 
-#define ASYNCWEB_JSON_MAXIMUM_BUFFER 4096
+#define ASYNCWEB_JSON_MAXIMUM_BUFFER 2048
 //#define ASYNCWEB_JSON_BUFFER_STATIC
 
 #ifdef ASYNCWEB_JSON_BUFFER_STATIC
@@ -52,8 +52,11 @@ class AsyncJsonResponse: public AsyncChunkedResponse {
 	public:
 		JsonVariant &root;
 
-		AsyncJsonResponse(JsonCreateRootCallback const& root_cb, int code = 200)
-			: AsyncChunkedResponse(code,
+		AsyncJsonResponse(JsonCreateRootCallback const& root_cb, int code
+#ifndef ASYNCWEB_JSON_BUFFER_STATIC
+			, size_t buflimit
+#endif
+			) : AsyncChunkedResponse(code,
 				std::bind(&AsyncJsonResponse::_JsonFiller, this,
 					std::placeholders::_1, std::placeholders::_2,
 					std::placeholders::_3),
@@ -61,9 +64,8 @@ class AsyncJsonResponse: public AsyncChunkedResponse {
 #ifdef ASYNCWEB_JSON_BUFFER_STATIC
 			//, _jsonBuffer()
 #else
-			, _bufferAllocator(ASYNCWEB_JSON_MAXIMUM_BUFFER)
-			, _jsonBuffer(_bufferAllocator,
-				ASYNCWEB_JSON_MAXIMUM_BUFFER-AsyncJsonBuffer::EmptyBlockSize)
+			, _bufferAllocator(buflimit)
+			, _jsonBuffer(_bufferAllocator, buflimit-AsyncJsonBuffer::EmptyBlockSize)
 #endif
 			, _jsonRoot(std::move(root_cb(_jsonBuffer)))
 			, _prettyPrint(false)
@@ -72,16 +74,32 @@ class AsyncJsonResponse: public AsyncChunkedResponse {
 
 		void setPrettyPrint(bool enable = true);
 
-		static AsyncJsonResponse* CreateNewObjectResponse(int code = 200) {
+		static AsyncJsonResponse* CreateNewObjectResponse(int code = 200
+#ifndef ASYNCWEB_JSON_BUFFER_STATIC
+			, size_t buflimit = ASYNCWEB_JSON_MAXIMUM_BUFFER
+#endif
+			) {
 			return new AsyncJsonResponse([](AsyncJsonBuffer &buf) {
 					return JsonVariant(buf.createObject());
-				}, code);
+				}, code
+#ifndef ASYNCWEB_JSON_BUFFER_STATIC
+				, buflimit
+#endif
+				);
 		}
 
-		static AsyncJsonResponse* CreateNewArrayResponse(int code = 200) {
+		static AsyncJsonResponse* CreateNewArrayResponse(int code = 200
+#ifndef ASYNCWEB_JSON_BUFFER_STATIC
+			, size_t buflimit = ASYNCWEB_JSON_MAXIMUM_BUFFER
+#endif
+			) {
 			return new AsyncJsonResponse([](AsyncJsonBuffer &buf) {
 					return JsonVariant(buf.createArray());
-				}, code);
+				}, code
+#ifndef ASYNCWEB_JSON_BUFFER_STATIC
+				, buflimit
+#endif
+				);
 		}
 };
 #endif
