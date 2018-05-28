@@ -536,7 +536,7 @@ String AsyncFileResponse::contentTypeByName(String const &filename) {
 	else if (extension == FC("css"))
 		return FC("text/css");
 	else if (extension == FC("json"))
-		return FC("text/json");
+		return FC("application/json");
 	else if (extension == FC("js"))
 		return FC("text/javascript");
 	else if (extension == FC("png"))

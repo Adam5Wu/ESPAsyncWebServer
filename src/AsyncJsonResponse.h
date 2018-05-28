@@ -23,11 +23,10 @@
 
 #include <functional>
 
-/*
- * Json Response
- * */
-
 #define ASYNCWEB_JSON_MAXIMUM_BUFFER 2048
+#define ASYNCWEB_JSON_NESTING_LIMIT  5
+
+// Try not to use static buffer unless absolutely necessary
 //#define ASYNCWEB_JSON_BUFFER_STATIC
 
 #ifdef ASYNCWEB_JSON_BUFFER_STATIC
@@ -60,7 +59,7 @@ class AsyncJsonResponse: public AsyncChunkedResponse {
 				std::bind(&AsyncJsonResponse::_JsonFiller, this,
 					std::placeholders::_1, std::placeholders::_2,
 					std::placeholders::_3),
-				FL("text/json"))
+				FL("application/json"))
 #ifdef ASYNCWEB_JSON_BUFFER_STATIC
 			//, _jsonBuffer()
 #else
@@ -73,6 +72,11 @@ class AsyncJsonResponse: public AsyncChunkedResponse {
 			{}
 
 		void setPrettyPrint(bool enable = true);
+
+		JsonVariant parse(String const &json,
+			uint8_t nestingLimit = ASYNCWEB_JSON_NESTING_LIMIT) {
+			return std::move(_jsonBuffer.parse(json, nestingLimit));
+		}
 
 		static AsyncJsonResponse* CreateNewObjectResponse(int code = 200
 #ifndef ASYNCWEB_JSON_BUFFER_STATIC
