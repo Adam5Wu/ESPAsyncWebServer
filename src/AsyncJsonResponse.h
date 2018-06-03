@@ -59,7 +59,7 @@ class AsyncJsonResponse: public AsyncChunkedResponse {
 				std::bind(&AsyncJsonResponse::_JsonFiller, this,
 					std::placeholders::_1, std::placeholders::_2,
 					std::placeholders::_3),
-				FL("application/json"))
+				FC("application/json"))
 #ifdef ASYNCWEB_JSON_BUFFER_STATIC
 			//, _jsonBuffer()
 #else
